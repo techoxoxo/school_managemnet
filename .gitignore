@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local data
+docker/data/
+coverage/
+
+# Tooling state
+.omc/
+.code-review-graph/
+.claude/*
+!.claude/launch.json

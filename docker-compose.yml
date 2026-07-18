@@ -1,0 +1,64 @@
+name: schoolmate
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: schoolmate
+      POSTGRES_PASSWORD: schoolmate_dev
+      POSTGRES_DB: schoolmate
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U schoolmate']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: schoolmate
+      MINIO_ROOT_PASSWORD: schoolmate_dev
+    command: server /data --console-address ':9001'
+    volumes:
+      - miniodata:/data
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    ports:
+      - '7700:7700'
+    environment:
+      MEILI_MASTER_KEY: schoolmate_dev_master_key
+      MEILI_ENV: development
+    volumes:
+      - msdata:/meili_data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - '8025:8025' # web UI
+      - '1025:1025' # SMTP
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  msdata:

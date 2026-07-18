@@ -1,0 +1,22 @@
+{
+  "name": "@schoolmate/admin-panel",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev -p 3001",
+    "start": "next start -p 3001",
+    "lint": "eslint app",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@schoolmate/shared": "*",
+    "next": "^15.1.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.3"
+  }
+}
