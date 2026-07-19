@@ -39,7 +39,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 | Phase         | Scope                                      | Tasks | Done | Status |
 | ------------- | ------------------------------------------ | ----- | ---- | ------ |
-| Phase 0       | Foundation & scaffolding                   | 28    | 6    | 🟨     |
+| Phase 0       | Foundation & scaffolding                   | 28    | 13   | 🟨     |
 | Phase 1       | Core academic MVP                          | 34    | 0    | ⬜     |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜     |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜     |
@@ -69,15 +69,15 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 0.2 Database Layer
 
-| ID       | Task                                                                                                     | Depends on | Status | Notes         |
-| -------- | -------------------------------------------------------------------------------------------------------- | ---------- | ------ | ------------- |
-| P0-DB-01 | `packages/db` — Drizzle ORM setup, migration tooling, migration CI check                                 | P0-INF-04  | ⬜     |               |
-| P0-DB-02 | Core schema migration: `tenants`, `tenant_billing`, `branches`, `academic_sessions`                      | P0-DB-01   | ⬜     | Plan §4.A     |
-| P0-DB-03 | Users schema: `users`, `user_tenant_roles`, `custom_roles`, `permissions_catalog`                        | P0-DB-01   | ⬜     | Plan §4.B     |
-| P0-DB-04 | Audit schema: `audit_logs`, `login_history`                                                              | P0-DB-01   | ⬜     | Plan §4.S     |
-| P0-DB-05 | RLS policies: enable per-table, `tenant_id = current_setting('app.tenant_id')` pattern                   | P0-DB-02   | ⬜     | Critical path |
-| P0-DB-06 | RLS leak-test harness: create 2 tenants, assert zero cross-tenant reads (reusable for all future tables) | P0-DB-05   | ⬜     | Plan §22      |
-| P0-DB-07 | Seed script: demo tenant + branch + session + admin user (faker-based factory foundation)                | P0-DB-03   | ⬜     |               |
+| ID       | Task                                                                                                     | Depends on | Status | Notes                                                                |
+| -------- | -------------------------------------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------- |
+| P0-DB-01 | `packages/db` — Drizzle ORM setup, migration tooling, migration CI check                                 | P0-INF-04  | ✅     | drizzle-kit generates from dist (NodeNext quirk)                     |
+| P0-DB-02 | Core schema migration: `tenants`, `tenant_billing`, `branches`, `academic_sessions`                      | P0-DB-01   | ✅     | Plan §4.A — migrations/0000_core-schema.sql                          |
+| P0-DB-03 | Users schema: `users`, `user_tenant_roles`, `custom_roles`, `permissions_catalog`                        | P0-DB-01   | ✅     | Plan §4.B — + institute_type on tenants                              |
+| P0-DB-04 | Audit schema: `audit_logs`, `login_history`                                                              | P0-DB-01   | ✅     | Plan §4.S                                                            |
+| P0-DB-05 | RLS policies: enable per-table, `tenant_id = current_setting('app.tenant_id')` pattern                   | P0-DB-02   | ✅     | Critical path — 0001: FORCE RLS + NULLIF guard + schoolmate_app role |
+| P0-DB-06 | RLS leak-test harness: create 2 tenants, assert zero cross-tenant reads (reusable for all future tables) | P0-DB-05   | ✅     | Plan §22 — 6/6 passing; runs in CI vs live PG                        |
+| P0-DB-07 | Seed script: demo tenant + branch + session + admin user (faker-based factory foundation)                | P0-DB-03   | ✅     | springfield / admin@springfield.test                                 |
 
 ## 0.3 Backend Core
 

@@ -8,6 +8,26 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: schoolmate
+          POSTGRES_PASSWORD: schoolmate_dev
+          POSTGRES_DB: schoolmate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schoolmate"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://schoolmate:schoolmate_dev@localhost:5432/schoolmate
+      DATABASE_APP_URL: postgres://schoolmate_app:schoolmate_app_dev@localhost:5432/schoolmate
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +44,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Run database migrations
+        run: npm run migrate -w @schoolmate/db
 
       - name: Test
         run: npm run test

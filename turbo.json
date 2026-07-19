@@ -15,6 +15,12 @@
     "typecheck": {
       "dependsOn": ["^build"]
     },
+    "@schoolmate/web#typecheck": {
+      "dependsOn": ["build"]
+    },
+    "@schoolmate/admin-panel#typecheck": {
+      "dependsOn": ["build"]
+    },
     "test": {
       "dependsOn": ["^build"]
     }

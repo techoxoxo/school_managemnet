@@ -4,7 +4,8 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - '5432:5432'
+      # Host 5433: this machine runs a native Postgres on 5432
+      - '5433:5432'
     environment:
       POSTGRES_USER: schoolmate
       POSTGRES_PASSWORD: schoolmate_dev
