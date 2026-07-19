@@ -12,6 +12,7 @@ export async function branchRoutes(app: FastifyInstance) {
   app.withTypeProvider<ZodTypeProvider>().get(
     '/branches',
     {
+      config: { permission: 'branch.view' },
       schema: {
         tags: ['branches'],
         response: {

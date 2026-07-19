@@ -2,7 +2,8 @@
  * API integration tests — run against live Postgres + Redis (docker compose / CI services).
  * Proves the P0 pipeline: tenant resolution → RLS-scoped query → response envelope.
  */
-import { createDb, createPool, branches, tenants } from '@schoolmate/db';
+import { createDb, createPool, branches, tenants, users, userTenantRoles } from '@schoolmate/db';
+import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,6 +21,7 @@ const SLUG_A = `apitest-a-${suffix}`;
 const SLUG_B = `apitest-b-${suffix}`;
 let tenantAId: string;
 let tenantBId: string;
+let accessToken: string;
 
 beforeAll(async () => {
   const rows = await adminDb
@@ -37,8 +39,27 @@ beforeAll(async () => {
     { tenantId: tenantBId, name: 'B Main', code: 'BM' },
   ]);
 
+  const [admin] = await adminDb
+    .insert(users)
+    .values({
+      email: `pipeline-${suffix}@test.dev`,
+      passwordHash: await bcrypt.hash('pw-123456', 10),
+    })
+    .returning();
+  await adminDb
+    .insert(userTenantRoles)
+    .values({ userId: admin!.id, tenantId: tenantAId, role: 'tenant_admin', isPrimaryRole: true });
+
   app = await buildApp();
   await app.ready();
+
+  const loginRes = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    headers: { 'x-tenant-slug': SLUG_A },
+    payload: { email: `pipeline-${suffix}@test.dev`, password: 'pw-123456' },
+  });
+  accessToken = loginRes.json().data.accessToken;
 });
 
 afterAll(async () => {
@@ -100,7 +121,7 @@ describe('tenant-scoped data via RLS (P0-API-04)', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/branches',
-      headers: { 'x-tenant-slug': SLUG_A },
+      headers: { 'x-tenant-slug': SLUG_A, authorization: `Bearer ${accessToken}` },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -113,7 +134,7 @@ describe('tenant-scoped data via RLS (P0-API-04)', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/branches',
-      headers: { 'x-tenant-slug': SLUG_A },
+      headers: { 'x-tenant-slug': SLUG_A, authorization: `Bearer ${accessToken}` },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toHaveLength(1);

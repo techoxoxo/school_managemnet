@@ -8,14 +8,30 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import { env } from './env.js';
+import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
 import { errorHandlerPlugin } from './plugins/error-handler.js';
 import { rateLimitPlugin } from './plugins/rate-limit.js';
 import { redisPlugin } from './plugins/redis.js';
 import { swaggerPlugin } from './plugins/swagger.js';
 import { tenantPlugin } from './plugins/tenant.js';
+import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { branchRoutes } from './routes/v1/branches.js';
+
+export interface RouteRegistryEntry {
+  method: string;
+  url: string;
+  permission: string | boolean | undefined;
+  tenant: boolean | undefined;
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Every registered route's auth declaration — feeds the permission-matrix test. */
+    routeRegistry: RouteRegistryEntry[];
+  }
+}
 
 /**
  * P0-API-01: one plugin per concern, explicit registration order (Plan §2).
@@ -31,6 +47,20 @@ export async function buildApp() {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  app.decorate('routeRegistry', [] as RouteRegistryEntry[]);
+  app.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const method of methods) {
+      if (method === 'HEAD' || method === 'OPTIONS') continue;
+      app.routeRegistry.push({
+        method,
+        url: route.url,
+        permission: route.config?.permission,
+        tenant: route.config?.tenant,
+      });
+    }
+  });
+
   await app.register(helmet);
   await app.register(cors, { origin: true, credentials: true });
   await app.register(errorHandlerPlugin);
@@ -39,8 +69,10 @@ export async function buildApp() {
   await app.register(swaggerPlugin);
   await app.register(tenantPlugin);
   await app.register(rateLimitPlugin);
+  await app.register(authPlugin);
 
   await app.register(healthRoutes);
+  await app.register(authRoutes);
   await app.register(branchRoutes, { prefix: '/v1' });
 
   return app;

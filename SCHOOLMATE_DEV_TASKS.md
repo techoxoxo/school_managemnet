@@ -39,7 +39,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 | Phase         | Scope                                      | Tasks | Done | Status |
 | ------------- | ------------------------------------------ | ----- | ---- | ------ |
-| Phase 0       | Foundation & scaffolding                   | 28    | 20   | 🟨     |
+| Phase 0       | Foundation & scaffolding                   | 28    | 27   | 🟨     |
 | Phase 1       | Core academic MVP                          | 34    | 0    | ⬜     |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜     |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜     |
@@ -93,16 +93,16 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 0.4 Authentication & Authorization
 
-| ID         | Task                                                                                                  | Depends on | Status | Notes          |
-| ---------- | ----------------------------------------------------------------------------------------------------- | ---------- | ------ | -------------- |
-| P0-AUTH-01 | Login: email/phone + password, bcrypt/argon2, JWT access (15m) + refresh (7d, Redis, rotated)         | P0-DB-03   | ⬜     |                |
-| P0-AUTH-02 | Refresh flow, logout, force-logout (admin kills sessions)                                             | P0-AUTH-01 | ⬜     |                |
-| P0-AUTH-03 | Brute-force protection: lockout after 5 fails, CAPTCHA after 3, rate limit                            | P0-AUTH-01 | ⬜     |                |
-| P0-AUTH-04 | Forgot/reset password + email verification flow                                                       | P0-AUTH-01 | ⬜     |                |
-| P0-AUTH-05 | RBAC engine: role → permissions resolution, `hasPermission()` guard, per-route permission declaration | P0-DB-03   | ⬜     | Plan §5        |
-| P0-AUTH-06 | ABAC layer: scope filters (own-branch, own-children, own-classes) as query decorators                 | P0-AUTH-05 | ⬜     |                |
-| P0-AUTH-07 | Permission-matrix test generator: endpoint × role → allow/deny, CI-enforced                           | P0-AUTH-05 | ⬜     | Plan §22       |
-| P0-AUTH-08 | MFA (TOTP) — optional per user, enforceable per tenant                                                | P0-AUTH-01 | ⬜     | Can slip to P5 |
+| ID         | Task                                                                                                  | Depends on | Status | Notes                                                              |
+| ---------- | ----------------------------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------ |
+| P0-AUTH-01 | Login: email/phone + password, bcrypt/argon2, JWT access (15m) + refresh (7d, Redis, rotated)         | P0-DB-03   | ✅     | bcrypt + JWT 15m + Redis sessions 7d                               |
+| P0-AUTH-02 | Refresh flow, logout, force-logout (admin kills sessions)                                             | P0-AUTH-01 | ✅     | rotation w/ reuse-theft detection; instant revocation via Redis    |
+| P0-AUTH-03 | Brute-force protection: lockout after 5 fails, CAPTCHA after 3, rate limit                            | P0-AUTH-01 | ✅     | 5 fails→30min lock; CAPTCHA deferred to web UI (P0-WEB-02)         |
+| P0-AUTH-04 | Forgot/reset password + email verification flow                                                       | P0-AUTH-01 | ✅     | reset kills all sessions; email dispatch → P1-API-02               |
+| P0-AUTH-05 | RBAC engine: role → permissions resolution, `hasPermission()` guard, per-route permission declaration | P0-DB-03   | ✅     | Plan §5 — route config.permission + global guard + shared role map |
+| P0-AUTH-06 | ABAC layer: scope filters (own-branch, own-children, own-classes) as query decorators                 | P0-AUTH-05 | ✅     | AuthContext + assertBranchScope; deepens per module                |
+| P0-AUTH-07 | Permission-matrix test generator: endpoint × role → allow/deny, CI-enforced                           | P0-AUTH-05 | ✅     | Plan §22 — permission-matrix.test.ts — undeclared route fails CI   |
+| P0-AUTH-08 | MFA (TOTP) — optional per user, enforceable per tenant                                                | P0-AUTH-01 | ⛔     | Can slip to P5 — deferred to Phase 5 per plan note (needs web UI)  |
 
 ## 0.5 Frontend Foundation
 

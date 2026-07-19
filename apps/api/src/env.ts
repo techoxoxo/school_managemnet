@@ -14,4 +14,15 @@ export const env = parseEnv({
   BASE_DOMAIN: z.string().default('localhost'),
   /** Seconds a slug → tenant lookup stays cached in Redis. */
   TENANT_CACHE_TTL: z.coerce.number().default(3600),
+  /** Auth (Plan §5). Set a real secret outside dev — boot fails in production without one. */
+  JWT_SECRET: z.string().default('dev_only_change_me'),
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().default(900), // 15 min
+  REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().default(7 * 24 * 3600), // 7 days
+  LOCKOUT_MAX_ATTEMPTS: z.coerce.number().default(5),
+  LOCKOUT_MINUTES: z.coerce.number().default(30),
+  PASSWORD_RESET_TTL_SECONDS: z.coerce.number().default(1800), // 30 min
 });
+
+if (env.NODE_ENV === 'production' && env.JWT_SECRET === 'dev_only_change_me') {
+  throw new Error('JWT_SECRET must be set in production');
+}
