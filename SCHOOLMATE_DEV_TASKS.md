@@ -39,7 +39,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 | Phase         | Scope                                      | Tasks | Done | Status |
 | ------------- | ------------------------------------------ | ----- | ---- | ------ |
-| Phase 0       | Foundation & scaffolding                   | 28    | 13   | 🟨     |
+| Phase 0       | Foundation & scaffolding                   | 28    | 20   | 🟨     |
 | Phase 1       | Core academic MVP                          | 34    | 0    | ⬜     |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜     |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜     |
@@ -81,15 +81,15 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 0.3 Backend Core
 
-| ID        | Task                                                                                 | Depends on          | Status | Notes   |
-| --------- | ------------------------------------------------------------------------------------ | ------------------- | ------ | ------- |
-| P0-API-01 | Fastify server: plugin architecture, graceful shutdown, Pino logging with request_id | P0-INF-05           | ⬜     |         |
-| P0-API-02 | Global error handler + standard response/error envelope (Plan §7 conventions)        | P0-API-01           | ⬜     |         |
-| P0-API-03 | Tenant resolution middleware: subdomain/header → Redis cache → DB → request context  | P0-DB-02            | ⬜     | Plan §3 |
-| P0-API-04 | DB plugin: per-request transaction with tenant GUC set (RLS enforcement point)       | P0-API-03, P0-DB-05 | ⬜     |         |
-| P0-API-05 | OpenAPI/Swagger auto-generation from Fastify schemas                                 | P0-API-02           | ⬜     |         |
-| P0-API-06 | Rate limiting plugin (Redis-backed, per-user + per-tenant)                           | P0-API-01           | ⬜     |         |
-| P0-API-07 | Health/readiness endpoints (`/health`, `/ready` — DB, Redis checks)                  | P0-API-01           | ⬜     |         |
+| ID        | Task                                                                                 | Depends on          | Status | Notes                                                               |
+| --------- | ------------------------------------------------------------------------------------ | ------------------- | ------ | ------------------------------------------------------------------- |
+| P0-API-01 | Fastify server: plugin architecture, graceful shutdown, Pino logging with request_id | P0-INF-05           | ✅     | plugins: redis, db, tenant, swagger, rate-limit                     |
+| P0-API-02 | Global error handler + standard response/error envelope (Plan §7 conventions)        | P0-API-01           | ✅     | AppError + Zod + fastify errors → envelope                          |
+| P0-API-03 | Tenant resolution middleware: subdomain/header → Redis cache → DB → request context  | P0-DB-02            | ✅     | Plan §3 — header/subdomain → Redis (1h TTL) → DB; suspended blocked |
+| P0-API-04 | DB plugin: per-request transaction with tenant GUC set (RLS enforcement point)       | P0-API-03, P0-DB-05 | ✅     | request.tenantDb() → withTenant()                                   |
+| P0-API-05 | OpenAPI/Swagger auto-generation from Fastify schemas                                 | P0-API-02           | ✅     | fastify-type-provider-zod → /docs                                   |
+| P0-API-06 | Rate limiting plugin (Redis-backed, per-user + per-tenant)                           | P0-API-01           | ✅     | Redis store, tenant+IP key (user key after AUTH)                    |
+| P0-API-07 | Health/readiness endpoints (`/health`, `/ready` — DB, Redis checks)                  | P0-API-01           | ✅     | /ready checks PG+Redis                                              |
 
 ## 0.4 Authentication & Authorization
 
