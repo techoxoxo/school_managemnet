@@ -1,5 +1,5 @@
-import { parents, parentStudent, students } from '@schoolmate/db';
-import { hasPermission } from '@schoolmate/shared';
+import { emitEvent, parents, parentStudent, students } from '@schoolmate/db';
+import { EVENT_TYPES, hasPermission } from '@schoolmate/shared';
 import { and, count, eq, ilike, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -113,6 +113,19 @@ export async function studentRoutes(app: FastifyInstance) {
           entityId: row!.id,
           // Never audit-log the plaintext ID.
           newValues: { ...row, govtIdEncrypted: row!.govtIdEncrypted ? '[encrypted]' : null },
+        });
+        // Atomic with the insert (transactional outbox) — welcome emails,
+        // analytics, webhooks consume this asynchronously (Plan §17).
+        await emitEvent(db, {
+          tenantId: request.tenant!.id,
+          type: EVENT_TYPES.STUDENT_ADMITTED,
+          aggregateType: 'student',
+          aggregateId: row!.id,
+          payload: {
+            studentId: row!.id,
+            admissionNumber: row!.admissionNumber,
+            branchId: row!.branchId,
+          },
         });
         return row!;
       });

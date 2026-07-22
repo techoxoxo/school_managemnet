@@ -77,3 +77,19 @@ export const parentRelationEnum = pgEnum('parent_relation', [
   'guardian',
   'other',
 ]);
+
+export const notificationChannelEnum = pgEnum('notification_channel', [
+  'in_app',
+  'email',
+  'sms',
+  'push',
+  'whatsapp',
+]);
+
+export const notificationStatusEnum = pgEnum('notification_status', [
+  'queued',
+  'sent',
+  'delivered',
+  'failed',
+  'skipped',
+]);

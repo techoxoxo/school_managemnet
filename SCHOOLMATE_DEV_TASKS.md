@@ -171,14 +171,14 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 1.5 Events, Notifications & Dashboards (v1)
 
-| ID        | Task                                                                                                                         | Depends on           | Status | Notes                                           |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------ | ----------------------------------------------- |
-| P1-API-01 | Transactional outbox: outbox table, poller worker, Redis Streams dispatch                                                    | P0-DB-01             | ⬜     | Plan §17 — build EARLY, everything hangs off it |
-| P1-API-02 | Notification engine v1: queue table, channel abstraction (email via SMTP, SMS via provider abstraction, in-app), retry logic | P1-API-01            | ⬜     |                                                 |
-| P1-API-03 | Event: `attendance.absent` → parent notification (configurable)                                                              | P1-API-02, P1-MOD-23 | ⬜     | First end-to-end event flow                     |
-| P1-WEB-01 | Admin dashboard v1: student count, attendance today, recent activity                                                         | P1-MOD-23            | ⬜     |                                                 |
-| P1-WEB-02 | Teacher dashboard v1: my classes, mark attendance shortcut, my timetable placeholder                                         | P1-MOD-23            | ⬜     |                                                 |
-| P1-QA-01  | E2E: onboard → class → admit student → mark attendance → absent notification (Playwright)                                    | all above            | ⬜     | Phase exit gate test                            |
+| ID        | Task                                                                                                                         | Depends on           | Status | Notes                                                                                                                                                 |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-API-01 | Transactional outbox: outbox table, poller worker, Redis Streams dispatch                                                    | P0-DB-01             | ✅     | Plan §17 — build EARLY, everything hangs off it — outbox_events + emitEvent(); atomic w/ tx (rollback drops, commit persists); relay drains+publishes |
+| P1-API-02 | Notification engine v1: queue table, channel abstraction (email via SMTP, SMS via provider abstraction, in-app), retry logic | P1-API-01            | ✅     | dispatch registry, in-app+queue, email(nodemailer)/sms/push senders, prefs opt-out, retry→fail                                                        |
+| P1-API-03 | Event: `attendance.absent` → parent notification (configurable)                                                              | P1-API-02, P1-MOD-23 | ⬜     | First end-to-end event flow                                                                                                                           |
+| P1-WEB-01 | Admin dashboard v1: student count, attendance today, recent activity                                                         | P1-MOD-23            | ⬜     |                                                                                                                                                       |
+| P1-WEB-02 | Teacher dashboard v1: my classes, mark attendance shortcut, my timetable placeholder                                         | P1-MOD-23            | ⬜     |                                                                                                                                                       |
+| P1-QA-01  | E2E: onboard → class → admit student → mark attendance → absent notification (Playwright)                                    | all above            | ⬜     | Phase exit gate test                                                                                                                                  |
 
 ---
 

@@ -34,6 +34,10 @@ const TENANT_SCOPED_TABLES = [
   'students',
   'parents',
   'parent_student',
+  'outbox_events',
+  'notifications',
+  'notification_queue',
+  'notification_preferences',
 ];
 
 const adminPool = createPool(ADMIN_URL);

@@ -6,13 +6,14 @@
 import {
   createDb,
   createPool,
+  outboxEvents,
   students as studentsTable,
   tenants,
   users,
   userTenantRoles,
 } from '@schoolmate/db';
 import bcrypt from 'bcryptjs';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
@@ -118,6 +119,21 @@ describe('student CRUD + govt-ID encryption (P1-MOD-09/11)', () => {
     // tenant_admin has '*' which includes student.view_sensitive → full value.
     expect(res.json().data.govtId).toBe('123456789012');
     expect(res.json().data.govtIdEncrypted).toBeUndefined();
+  });
+
+  it('emits a student.admitted outbox event atomically with the insert (P1-API-01)', async () => {
+    const [event] = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.tenantId, tenantId),
+          eq(outboxEvents.aggregateId, studentId),
+          eq(outboxEvents.eventType, 'student.admitted'),
+        ),
+      );
+    expect(event).toBeTruthy();
+    expect(event!.publishedAt).toBeNull(); // relay hasn't run in this test
   });
 
   it('persists ciphertext, never plaintext, in the DB', async () => {
