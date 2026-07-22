@@ -31,6 +31,9 @@ const TENANT_SCOPED_TABLES = [
   'sections',
   'subjects',
   'class_subjects',
+  'students',
+  'parents',
+  'parent_student',
 ];
 
 const adminPool = createPool(ADMIN_URL);

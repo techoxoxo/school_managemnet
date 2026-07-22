@@ -29,6 +29,20 @@
       "when": 1784745201292,
       "tag": "0003_academics-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784745839004,
+      "tag": "0004_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784745839533,
+      "tag": "0005_people-rls",
+      "breakpoints": true
     }
   ]
 }

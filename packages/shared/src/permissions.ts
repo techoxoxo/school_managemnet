@@ -18,6 +18,14 @@ export const PERMISSIONS = {
   // Subjects
   SUBJECT_VIEW: 'subject.view',
   SUBJECT_MANAGE: 'subject.manage',
+  // Students
+  STUDENT_VIEW: 'student.view',
+  STUDENT_MANAGE: 'student.manage',
+  /** Decrypt CRITICAL fields (govt ID) — separate from student.view. */
+  STUDENT_VIEW_SENSITIVE: 'student.view_sensitive',
+  // Parents
+  PARENT_VIEW: 'parent.view',
+  PARENT_MANAGE: 'parent.manage',
   // Users & roles
   USER_VIEW: 'user.view',
   USER_MANAGE: 'user.manage',
@@ -36,14 +44,30 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   super_admin: ['*'],
   tenant_admin: ['*'],
-  branch_admin: ['branch.view', 'session.*', 'class.*', 'subject.*', 'user.view', 'audit.view'],
-  teacher: ['branch.view', 'session.view', 'class.view', 'subject.view'],
-  accountant: ['branch.view', 'session.view'],
-  librarian: ['branch.view', 'session.view'],
-  hostel_warden: ['branch.view', 'session.view'],
-  transport_manager: ['branch.view', 'session.view'],
-  receptionist: ['branch.view', 'session.view', 'class.view'],
-  counselor: ['branch.view', 'session.view', 'class.view'],
+  branch_admin: [
+    'branch.view',
+    'session.*',
+    'class.*',
+    'subject.*',
+    'student.*',
+    'parent.*',
+    'user.view',
+    'audit.view',
+  ],
+  teacher: [
+    'branch.view',
+    'session.view',
+    'class.view',
+    'subject.view',
+    'student.view',
+    'parent.view',
+  ],
+  accountant: ['branch.view', 'session.view', 'student.view', 'parent.view'],
+  librarian: ['branch.view', 'session.view', 'student.view'],
+  hostel_warden: ['branch.view', 'session.view', 'student.view'],
+  transport_manager: ['branch.view', 'session.view', 'student.view'],
+  receptionist: ['branch.view', 'session.view', 'class.view', 'student.*', 'parent.*'],
+  counselor: ['branch.view', 'session.view', 'class.view', 'student.view', 'parent.view'],
   student: [],
   parent: [],
   custom: [],

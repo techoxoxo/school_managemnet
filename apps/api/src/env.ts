@@ -21,8 +21,15 @@ export const env = parseEnv({
   LOCKOUT_MAX_ATTEMPTS: z.coerce.number().default(5),
   LOCKOUT_MINUTES: z.coerce.number().default(30),
   PASSWORD_RESET_TTL_SECONDS: z.coerce.number().default(1800), // 30 min
+  /** 32-byte base64 master key for field-level encryption (Plan §13). */
+  FIELD_ENCRYPTION_KEY: z.string().default('ZGV2LW9ubHktMzItYnl0ZS1maWVsZC1lbmMta2V5ISE='),
 });
 
-if (env.NODE_ENV === 'production' && env.JWT_SECRET === 'dev_only_change_me') {
-  throw new Error('JWT_SECRET must be set in production');
+if (env.NODE_ENV === 'production') {
+  if (env.JWT_SECRET === 'dev_only_change_me') {
+    throw new Error('JWT_SECRET must be set in production');
+  }
+  if (env.FIELD_ENCRYPTION_KEY.startsWith('ZGV2LW9ubHkt')) {
+    throw new Error('FIELD_ENCRYPTION_KEY must be set in production');
+  }
 }

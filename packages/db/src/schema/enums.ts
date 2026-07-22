@@ -59,3 +59,21 @@ export const subjectTypeEnum = pgEnum('subject_type', [
   'co_curricular',
   'lab',
 ]);
+
+export const genderEnum = pgEnum('gender', ['male', 'female', 'other']);
+
+export const studentStatusEnum = pgEnum('student_status', [
+  'active',
+  'alumni',
+  'transferred',
+  'expelled',
+  'dropout',
+  'passout',
+]);
+
+export const parentRelationEnum = pgEnum('parent_relation', [
+  'father',
+  'mother',
+  'guardian',
+  'other',
+]);

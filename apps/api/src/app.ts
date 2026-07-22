@@ -20,7 +20,9 @@ import { healthRoutes } from './routes/health.js';
 import { academicSessionRoutes } from './routes/v1/academic-sessions.js';
 import { branchRoutes } from './routes/v1/branches.js';
 import { classRoutes } from './routes/v1/classes.js';
+import { parentRoutes } from './routes/v1/parents.js';
 import { sectionRoutes } from './routes/v1/sections.js';
+import { studentRoutes } from './routes/v1/students.js';
 import { subjectRoutes } from './routes/v1/subjects.js';
 
 export interface RouteRegistryEntry {
@@ -43,9 +45,8 @@ declare module 'fastify' {
  */
 export async function buildApp() {
   const app = Fastify({
-    logger: { level: env.LOG_LEVEL },
+    logger: env.NODE_ENV === 'test' ? false : { level: env.LOG_LEVEL },
     genReqId: () => randomUUID(),
-    disableRequestLogging: env.NODE_ENV === 'test',
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -82,6 +83,8 @@ export async function buildApp() {
   await app.register(classRoutes, { prefix: '/v1' });
   await app.register(sectionRoutes, { prefix: '/v1' });
   await app.register(subjectRoutes, { prefix: '/v1' });
+  await app.register(studentRoutes, { prefix: '/v1' });
+  await app.register(parentRoutes, { prefix: '/v1' });
 
   return app;
 }
