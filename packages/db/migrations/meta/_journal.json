@@ -57,6 +57,20 @@
       "when": 1784746821316,
       "tag": "0007_messaging-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784747425716,
+      "tag": "0008_staff-attendance",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784747426226,
+      "tag": "0009_staff-attendance-rls",
+      "breakpoints": true
     }
   ]
 }

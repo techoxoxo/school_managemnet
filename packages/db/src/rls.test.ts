@@ -38,6 +38,11 @@ const TENANT_SCOPED_TABLES = [
   'notifications',
   'notification_queue',
   'notification_preferences',
+  'departments',
+  'staff_members',
+  'staff_attendance',
+  'attendance_settings',
+  'student_attendance',
 ];
 
 const adminPool = createPool(ADMIN_URL);

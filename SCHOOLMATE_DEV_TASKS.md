@@ -151,23 +151,23 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 1.3 Staff Basics
 
-| ID        | Task                                                                   | Depends on            | Status | Notes |
-| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | ----- |
-| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ⬜     |       |
-| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | ⬜     |       |
-| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ⬜     |       |
-| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | ⬜     |       |
+| ID        | Task                                                                   | Depends on            | Status | Notes                                                                                   |
+| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | --------------------------------------------------------------------------------------- |
+| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ✅     | staff_members + staff_attendance + departments schema; staff CRUD, employee# unique→409 |
+| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | ⬜     |                                                                                         |
+| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ✅     | departments CRUD (factory)                                                              |
+| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | ⬜     |                                                                                         |
 
 ## 1.4 Attendance
 
-| ID        | Task                                                                              | Depends on | Status | Notes                                       |
-| --------- | --------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------- |
-| P1-MOD-22 | Attendance schema (§4.H) + settings (daily vs period-wise per tenant)             | P0-DB-05   | ⬜     |                                             |
-| P1-MOD-23 | Mark attendance UI: whole-class single screen, keyboard-fast, defaults to present | P1-MOD-22  | ⬜     | Teacher's daily tool — UX matters most here |
-| P1-MOD-24 | Period-wise attendance mode                                                       | P1-MOD-23  | ⬜     |                                             |
-| P1-MOD-25 | Attendance reports: daily register, monthly summary, student %                    | P1-MOD-23  | ⬜     |                                             |
-| P1-MOD-26 | Unmarked-class detection + teacher reminder                                       | P1-MOD-23  | ⬜     |                                             |
-| P1-MOD-27 | Staff attendance: manual marking + self check-in                                  | P1-MOD-18  | ⬜     |                                             |
+| ID        | Task                                                                              | Depends on | Status | Notes                                                                                                   |
+| --------- | --------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| P1-MOD-22 | Attendance schema (§4.H) + settings (daily vs period-wise per tenant)             | P0-DB-05   | ✅     | student_attendance + attendance_settings schema; per-branch settings get/patch                          |
+| P1-MOD-23 | Mark attendance UI: whole-class single screen, keyboard-fast, defaults to present | P1-MOD-22  | ✅     | Teacher's daily tool — UX matters most here — bulk mark (upsert/idempotent), source tracking, marked_by |
+| P1-MOD-24 | Period-wise attendance mode                                                       | P1-MOD-23  | ⬜     |                                                                                                         |
+| P1-MOD-25 | Attendance reports: daily register, monthly summary, student %                    | P1-MOD-23  | ✅     | daily register + student % report (present+late+½·half_day)                                             |
+| P1-MOD-26 | Unmarked-class detection + teacher reminder                                       | P1-MOD-23  | ⬜     |                                                                                                         |
+| P1-MOD-27 | Staff attendance: manual marking + self check-in                                  | P1-MOD-18  | ⬜     |                                                                                                         |
 
 ## 1.5 Events, Notifications & Dashboards (v1)
 
@@ -175,7 +175,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1-API-01 | Transactional outbox: outbox table, poller worker, Redis Streams dispatch                                                    | P0-DB-01             | ✅     | Plan §17 — build EARLY, everything hangs off it — outbox_events + emitEvent(); atomic w/ tx (rollback drops, commit persists); relay drains+publishes |
 | P1-API-02 | Notification engine v1: queue table, channel abstraction (email via SMTP, SMS via provider abstraction, in-app), retry logic | P1-API-01            | ✅     | dispatch registry, in-app+queue, email(nodemailer)/sms/push senders, prefs opt-out, retry→fail                                                        |
-| P1-API-03 | Event: `attendance.absent` → parent notification (configurable)                                                              | P1-API-02, P1-MOD-23 | ⬜     | First end-to-end event flow                                                                                                                           |
+| P1-API-03 | Event: `attendance.absent` → parent notification (configurable)                                                              | P1-API-02, P1-MOD-23 | ✅     | First end-to-end event flow — absent→attendance.absent event w/ parent recipients; PROVEN LIVE (api→worker→SMS)                                       |
 | P1-WEB-01 | Admin dashboard v1: student count, attendance today, recent activity                                                         | P1-MOD-23            | ⬜     |                                                                                                                                                       |
 | P1-WEB-02 | Teacher dashboard v1: my classes, mark attendance shortcut, my timetable placeholder                                         | P1-MOD-23            | ⬜     |                                                                                                                                                       |
 | P1-QA-01  | E2E: onboard → class → admit student → mark attendance → absent notification (Playwright)                                    | all above            | ⬜     | Phase exit gate test                                                                                                                                  |

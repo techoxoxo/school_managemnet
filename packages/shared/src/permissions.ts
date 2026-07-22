@@ -26,6 +26,14 @@ export const PERMISSIONS = {
   // Parents
   PARENT_VIEW: 'parent.view',
   PARENT_MANAGE: 'parent.manage',
+  // Staff / HR
+  STAFF_VIEW: 'staff.view',
+  STAFF_MANAGE: 'staff.manage',
+  STAFF_VIEW_SENSITIVE: 'staff.view_sensitive',
+  // Attendance
+  ATTENDANCE_VIEW: 'attendance.view',
+  ATTENDANCE_MARK: 'attendance.mark',
+  ATTENDANCE_MANAGE: 'attendance.manage',
   // Users & roles
   USER_VIEW: 'user.view',
   USER_MANAGE: 'user.manage',
@@ -51,6 +59,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'subject.*',
     'student.*',
     'parent.*',
+    'staff.*',
+    'attendance.*',
     'user.view',
     'audit.view',
   ],
@@ -61,8 +71,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'subject.view',
     'student.view',
     'parent.view',
+    'staff.view',
+    'attendance.view',
+    'attendance.mark',
   ],
-  accountant: ['branch.view', 'session.view', 'student.view', 'parent.view'],
+  accountant: ['branch.view', 'session.view', 'student.view', 'parent.view', 'staff.view'],
   librarian: ['branch.view', 'session.view', 'student.view'],
   hostel_warden: ['branch.view', 'session.view', 'student.view'],
   transport_manager: ['branch.view', 'session.view', 'student.view'],

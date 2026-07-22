@@ -5,3 +5,5 @@ export * from './audit.js';
 export * from './academics.js';
 export * from './people.js';
 export * from './messaging.js';
+export * from './staff.js';
+export * from './attendance.js';

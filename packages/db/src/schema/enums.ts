@@ -93,3 +93,47 @@ export const notificationStatusEnum = pgEnum('notification_status', [
   'failed',
   'skipped',
 ]);
+
+export const employmentTypeEnum = pgEnum('employment_type', [
+  'permanent',
+  'contract',
+  'part_time',
+  'visiting',
+]);
+
+export const staffStatusEnum = pgEnum('staff_status', [
+  'active',
+  'on_leave',
+  'resigned',
+  'terminated',
+  'retired',
+]);
+
+export const studentAttendanceStatusEnum = pgEnum('student_attendance_status', [
+  'present',
+  'absent',
+  'late',
+  'half_day',
+  'excused',
+  'holiday',
+]);
+
+export const staffAttendanceStatusEnum = pgEnum('staff_attendance_status', [
+  'present',
+  'absent',
+  'half_day',
+  'late',
+  'on_leave',
+  'holiday',
+  'weekend',
+]);
+
+export const attendanceSourceEnum = pgEnum('attendance_source', [
+  'manual',
+  'biometric',
+  'app',
+  'qr',
+  'rfid',
+]);
+
+export const attendanceTypeEnum = pgEnum('attendance_type', ['daily', 'period_wise']);
