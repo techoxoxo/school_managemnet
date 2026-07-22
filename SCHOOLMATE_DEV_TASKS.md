@@ -37,17 +37,17 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## Progress Summary
 
-| Phase         | Scope                                      | Tasks | Done | Status |
-| ------------- | ------------------------------------------ | ----- | ---- | ------ |
-| Phase 0       | Foundation & scaffolding                   | 28    | 27   | 🟨     |
-| Phase 1       | Core academic MVP                          | 34    | 0    | ⬜     |
-| Phase 2       | Fees & examinations                        | 30    | 0    | ⬜     |
-| Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜     |
-| Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜     |
-| Phase 5       | Advanced & polish                          | 22    | 0    | ⬜     |
-| Phase 6       | Scale, harden & launch                     | 20    | 0    | ⬜     |
-| Phase 7       | Pro level: verticals, mobile, AI, platform | 42    | 0    | ⬜     |
-| Cross-cutting | Continuous tracks                          | 12    | —    | 🔁     |
+| Phase         | Scope                                      | Tasks | Done | Status  |
+| ------------- | ------------------------------------------ | ----- | ---- | ------- |
+| Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
+| Phase 1       | Core academic MVP                          | 34    | 0    | ⬜      |
+| Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
+| Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
+| Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
+| Phase 5       | Advanced & polish                          | 22    | 0    | ⬜      |
+| Phase 6       | Scale, harden & launch                     | 20    | 0    | ⬜      |
+| Phase 7       | Pro level: verticals, mobile, AI, platform | 42    | 0    | ⬜      |
+| Cross-cutting | Continuous tracks                          | 12    | —    | 🔁      |
 
 ---
 
@@ -106,14 +106,14 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 0.5 Frontend Foundation
 
-| ID        | Task                                                                                            | Depends on | Status | Notes                  |
-| --------- | ----------------------------------------------------------------------------------------------- | ---------- | ------ | ---------------------- |
-| P0-WEB-01 | Next.js App Router setup: route groups per Plan §8, Tailwind + shadcn/ui                        | P0-INF-01  | ⬜     |                        |
-| P0-WEB-02 | Auth pages: login, forgot password, OTP verify; session handling (httpOnly cookies)             | P0-AUTH-01 | ⬜     |                        |
-| P0-WEB-03 | Tenant-aware middleware: subdomain routing, tenant theming (logo/colors from config)            | P0-API-03  | ⬜     |                        |
-| P0-WEB-04 | App shell: sidebar nav (permission-filtered), topbar, breadcrumbs, role switcher                | P0-WEB-02  | ⬜     |                        |
-| P0-WEB-05 | Data layer: TanStack Query setup, typed API client generated from OpenAPI                       | P0-API-05  | ⬜     |                        |
-| P0-WEB-06 | Core UI kit: DataTable (TanStack), FormBuilder (RHF+Zod), ConfirmDialog, EmptyState, PageHeader | P0-WEB-01  | ⬜     | Reused by every module |
+| ID        | Task                                                                                            | Depends on | Status | Notes                                                                           |
+| --------- | ----------------------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------- |
+| P0-WEB-01 | Next.js App Router setup: route groups per Plan §8, Tailwind + shadcn/ui                        | P0-INF-01  | ✅     | Tailwind v4 tokens, shadcn-style Button/Input/Card kit                          |
+| P0-WEB-02 | Auth pages: login, forgot password, OTP verify; session handling (httpOnly cookies)             | P0-AUTH-01 | ✅     | BFF login/refresh/logout → httpOnly cookies; no-enumeration errors              |
+| P0-WEB-03 | Tenant-aware middleware: subdomain routing, tenant theming (logo/colors from config)            | P0-API-03  | ✅     | middleware: subdomain→cookie tenant + auth-guard redirects                      |
+| P0-WEB-04 | App shell: sidebar nav (permission-filtered), topbar, breadcrumbs, role switcher                | P0-WEB-02  | ✅     | AppShell: permission-filtered sidebar, topbar, mobile drawer                    |
+| P0-WEB-05 | Data layer: TanStack Query setup, typed API client generated from OpenAPI                       | P0-API-05  | ✅     | server apiFetch forwards cookie Bearer + tenant slug                            |
+| P0-WEB-06 | Core UI kit: DataTable (TanStack), FormBuilder (RHF+Zod), ConfirmDialog, EmptyState, PageHeader | P0-WEB-01  | ✅     | Reused by every module — Button/Input/Card/EmptyState/Skeleton/Alert/PageHeader |
 
 ---
 
