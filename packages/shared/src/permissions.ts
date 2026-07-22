@@ -12,6 +12,12 @@ export const PERMISSIONS = {
   // Academic sessions
   SESSION_VIEW: 'session.view',
   SESSION_MANAGE: 'session.manage',
+  // Classes & sections
+  CLASS_VIEW: 'class.view',
+  CLASS_MANAGE: 'class.manage',
+  // Subjects
+  SUBJECT_VIEW: 'subject.view',
+  SUBJECT_MANAGE: 'subject.manage',
   // Users & roles
   USER_VIEW: 'user.view',
   USER_MANAGE: 'user.manage',
@@ -30,14 +36,14 @@ export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   super_admin: ['*'],
   tenant_admin: ['*'],
-  branch_admin: ['branch.view', 'session.*', 'user.view', 'audit.view'],
-  teacher: ['branch.view', 'session.view'],
+  branch_admin: ['branch.view', 'session.*', 'class.*', 'subject.*', 'user.view', 'audit.view'],
+  teacher: ['branch.view', 'session.view', 'class.view', 'subject.view'],
   accountant: ['branch.view', 'session.view'],
   librarian: ['branch.view', 'session.view'],
   hostel_warden: ['branch.view', 'session.view'],
   transport_manager: ['branch.view', 'session.view'],
-  receptionist: ['branch.view', 'session.view'],
-  counselor: ['branch.view', 'session.view'],
+  receptionist: ['branch.view', 'session.view', 'class.view'],
+  counselor: ['branch.view', 'session.view', 'class.view'],
   student: [],
   parent: [],
   custom: [],

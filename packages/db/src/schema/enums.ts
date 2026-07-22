@@ -38,3 +38,24 @@ export const instituteTypeEnum = pgEnum('institute_type', [
   'coaching_center',
   'college',
 ]);
+
+export const classTypeEnum = pgEnum('class_type', [
+  'playgroup',
+  'kindergarten',
+  'primary',
+  'middle',
+  'secondary',
+  'senior_secondary',
+  'undergraduate',
+  'postgraduate',
+  'coaching',
+]);
+
+export const subjectTypeEnum = pgEnum('subject_type', [
+  'core',
+  'elective',
+  'language',
+  'vocational',
+  'co_curricular',
+  'lab',
+]);

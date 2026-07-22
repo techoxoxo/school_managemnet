@@ -39,6 +39,24 @@ export const errorHandlerPlugin = fp(async (app: FastifyInstance) => {
       });
     }
 
+    // Postgres constraint violations → clean client errors (not 500s).
+    const pgCode = (err as { code?: string }).code;
+    if (pgCode === '23505') {
+      return reply.status(409).send({
+        success: false,
+        error: { code: ErrorCodes.CONFLICT, message: 'A record with these values already exists' },
+      });
+    }
+    if (pgCode === '23503') {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Referenced record does not exist',
+        },
+      });
+    }
+
     request.log.error({ err }, 'unhandled error');
     return reply.status(500).send({
       success: false,

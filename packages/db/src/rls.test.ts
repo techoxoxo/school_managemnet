@@ -27,6 +27,10 @@ const TENANT_SCOPED_TABLES = [
   'custom_roles',
   'audit_logs',
   'login_history',
+  'classes',
+  'sections',
+  'subjects',
+  'class_subjects',
 ];
 
 const adminPool = createPool(ADMIN_URL);

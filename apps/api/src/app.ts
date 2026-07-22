@@ -17,7 +17,11 @@ import { swaggerPlugin } from './plugins/swagger.js';
 import { tenantPlugin } from './plugins/tenant.js';
 import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
+import { academicSessionRoutes } from './routes/v1/academic-sessions.js';
 import { branchRoutes } from './routes/v1/branches.js';
+import { classRoutes } from './routes/v1/classes.js';
+import { sectionRoutes } from './routes/v1/sections.js';
+import { subjectRoutes } from './routes/v1/subjects.js';
 
 export interface RouteRegistryEntry {
   method: string;
@@ -74,6 +78,10 @@ export async function buildApp() {
   await app.register(healthRoutes);
   await app.register(authRoutes);
   await app.register(branchRoutes, { prefix: '/v1' });
+  await app.register(academicSessionRoutes, { prefix: '/v1' });
+  await app.register(classRoutes, { prefix: '/v1' });
+  await app.register(sectionRoutes, { prefix: '/v1' });
+  await app.register(subjectRoutes, { prefix: '/v1' });
 
   return app;
 }

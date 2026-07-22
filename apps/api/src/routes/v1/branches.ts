@@ -1,49 +1,30 @@
 import { branches } from '@schoolmate/db';
 import type { FastifyInstance } from 'fastify';
-import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import { registerCrud } from '../../lib/crud.js';
 
-/**
- * First tenant-scoped route — proves the full pipeline:
- * subdomain/header → tenant resolution → withTenant() → RLS-scoped query → envelope.
- * (Real branch CRUD with permissions lands in P1-MOD-04.)
- */
+const createSchema = z.object({
+  name: z.string().min(1).max(200),
+  code: z.string().min(1).max(50),
+  phone: z.string().max(30).optional(),
+  email: z.string().email().optional(),
+  principalName: z.string().max(200).optional(),
+  isMainBranch: z.boolean().optional(),
+});
+
 export async function branchRoutes(app: FastifyInstance) {
-  app.withTypeProvider<ZodTypeProvider>().get(
-    '/branches',
-    {
-      config: { permission: 'branch.view' },
-      schema: {
-        tags: ['branches'],
-        response: {
-          200: z.object({
-            success: z.literal(true),
-            data: z.array(
-              z.object({
-                id: z.string().uuid(),
-                name: z.string(),
-                code: z.string(),
-                isMainBranch: z.boolean(),
-                isActive: z.boolean(),
-              }),
-            ),
-          }),
-        },
-      },
-    },
-    async (request) => {
-      const rows = await request.tenantDb((db) =>
-        db
-          .select({
-            id: branches.id,
-            name: branches.name,
-            code: branches.code,
-            isMainBranch: branches.isMainBranch,
-            isActive: branches.isActive,
-          })
-          .from(branches),
-      );
-      return { success: true as const, data: rows };
-    },
-  );
+  registerCrud(app, {
+    path: 'branches',
+    entity: 'Branch',
+    auditType: 'branch',
+    permissionPrefix: 'branch',
+    tags: ['branches'],
+    table: branches,
+    idColumn: branches.id,
+    orderColumn: branches.name,
+    searchColumn: branches.name,
+    hasUpdatedAt: true,
+    createSchema,
+    updateSchema: createSchema.partial().extend({ isActive: z.boolean().optional() }),
+  });
 }
