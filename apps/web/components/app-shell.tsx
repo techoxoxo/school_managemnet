@@ -1,6 +1,15 @@
 'use client';
 
-import { LayoutDashboard, Building2, CalendarCheck, Users, LogOut, Menu, X } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Building2,
+  CalendarCheck,
+  Users,
+  Upload,
+  LogOut,
+  Menu,
+  X,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -14,6 +23,7 @@ const ICONS: Record<NavItem['icon'], typeof LayoutDashboard> = {
   branches: Building2,
   students: Users,
   attendance: CalendarCheck,
+  import: Upload,
   settings: Building2,
 };
 

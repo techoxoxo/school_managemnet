@@ -17,7 +17,9 @@ async function forward(request: NextRequest, path: string[]) {
   const apiRes = await fetch(url, {
     method: request.method,
     headers: {
-      'content-type': 'application/json',
+      // Only send content-type with an actual body — Fastify rejects an empty
+      // application/json body (e.g. bodyless DELETE).
+      ...(hasBody ? { 'content-type': 'application/json' } : {}),
       ...(slug ? { 'x-tenant-slug': slug } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
