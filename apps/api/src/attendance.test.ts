@@ -752,3 +752,55 @@ describe('unmarked-class detection + teacher reminder (P1-MOD-26)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('dashboard summary (P1-WEB-01/02 support)', () => {
+  it('admin sees tenant-wide counts; no personal staff block', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/dashboard/summary',
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const d = res.json().data;
+    expect(typeof d.counts.students).toBe('number');
+    expect(d.counts.staff).toBeGreaterThanOrEqual(1);
+    expect(d.attendanceToday).toHaveProperty('date');
+    expect(d.me).toBeNull(); // admin user has no staff_members row
+  });
+
+  it('a class teacher sees their own classes in the me block', async () => {
+    // The module teacher was linked to staff "Ned" in the self-check-in test.
+    const [ned] = await adminDb
+      .select({ id: staffMembers.id })
+      .from(staffMembers)
+      .where(eq(staffMembers.userId, teacherUserId));
+    expect(ned).toBeTruthy();
+
+    const classId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/classes',
+        headers: auth(adminToken),
+        payload: { branchId, name: 'Dash Class', classType: 'secondary' },
+      })
+    ).json().data.id;
+    const sectionId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: auth(adminToken),
+        payload: { branchId, classId, name: 'D', classTeacherId: ned!.id },
+      })
+    ).json().data.id;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/dashboard/summary',
+      headers: auth(teacherToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const me = res.json().data.me;
+    expect(me).not.toBeNull();
+    expect(me.myClasses.some((c: { sectionId: string }) => c.sectionId === sectionId)).toBe(true);
+  });
+});

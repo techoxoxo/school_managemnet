@@ -6,11 +6,12 @@
 export interface NavItem {
   label: string;
   href: string;
-  icon: 'dashboard' | 'branches' | 'students' | 'settings';
+  icon: 'dashboard' | 'branches' | 'students' | 'attendance' | 'settings';
   permission: string | null; // null = any authenticated user
 }
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: 'dashboard', permission: null },
   { label: 'Branches', href: '/branches', icon: 'branches', permission: 'branch.view' },
+  { label: 'Attendance', href: '/attendance', icon: 'attendance', permission: 'attendance.view' },
 ];
