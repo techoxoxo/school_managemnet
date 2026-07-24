@@ -40,7 +40,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | Phase         | Scope                                      | Tasks | Done | Status  |
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
-| Phase 1       | Core academic MVP                          | 34    | 27   | 🟨      |
+| Phase 1       | Core academic MVP                          | 34    | 28   | 🟨      |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
@@ -151,12 +151,12 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 1.3 Staff Basics
 
-| ID        | Task                                                                   | Depends on            | Status | Notes                                                                                                                           |
-| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ✅     | staff_members + staff_attendance + departments schema; staff CRUD, employee# unique→409                                         |
-| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | 🟨     | API done: /staff/:id/account (link user, null-pw→reset/invite, staff.account_created event) + /staff/:id/roles CRUD; UI pending |
-| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ✅     | departments CRUD (factory)                                                                                                      |
-| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | ⬜     |                                                                                                                                 |
+| ID        | Task                                                                   | Depends on            | Status | Notes                                                                                                                                     |
+| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ✅     | staff_members + staff_attendance + departments schema; staff CRUD, employee# unique→409                                                   |
+| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | ✅     | API (/staff/:id/account + /roles) + web Staff page: add staff, create login (email+role), account status; authed BFF proxy; verified live |
+| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ✅     | departments CRUD (factory)                                                                                                                |
+| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | ⬜     |                                                                                                                                           |
 
 ## 1.4 Attendance
 

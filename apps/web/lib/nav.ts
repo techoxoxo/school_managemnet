@@ -13,5 +13,6 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: 'dashboard', permission: null },
   { label: 'Branches', href: '/branches', icon: 'branches', permission: 'branch.view' },
+  { label: 'Staff', href: '/staff', icon: 'students', permission: 'staff.view' },
   { label: 'Attendance', href: '/attendance', icon: 'attendance', permission: 'attendance.view' },
 ];
