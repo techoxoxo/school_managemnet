@@ -3,6 +3,7 @@ export * from './tenants.js';
 export * from './users.js';
 export * from './audit.js';
 export * from './academics.js';
+export * from './imports.js';
 export * from './people.js';
 export * from './messaging.js';
 export * from './staff.js';

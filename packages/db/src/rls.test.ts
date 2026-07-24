@@ -34,6 +34,7 @@ const TENANT_SCOPED_TABLES = [
   'subject_teachers',
   'students',
   'admissions',
+  'import_batches',
   'parents',
   'parent_student',
   'outbox_events',

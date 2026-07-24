@@ -106,6 +106,20 @@
       "when": 1784922377004,
       "tag": "0014_platform-admin",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784924201932,
+      "tag": "0015_import-batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784924202432,
+      "tag": "0016_import-batches-rls",
+      "breakpoints": true
     }
   ]
 }

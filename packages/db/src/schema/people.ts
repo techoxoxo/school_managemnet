@@ -12,6 +12,7 @@ import {
 import { admissionStatusEnum, genderEnum, parentRelationEnum, studentStatusEnum } from './enums.js';
 import { academicSessions, branches, tenants } from './tenants.js';
 import { classes, sections } from './academics.js';
+import { importBatches } from './imports.js';
 import { users } from './users.js';
 
 /** Tenant-scoped (RLS). Students (Plan §4.C). */
@@ -50,6 +51,10 @@ export const students = pgTable(
     medicalInfo: jsonb('medical_info'),
     transportOpted: boolean('transport_opted').notNull().default(false),
     hostelOpted: boolean('hostel_opted').notNull().default(false),
+    /** Set when created via bulk import — enables rollback (P1-MOD-16). */
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -117,6 +122,10 @@ export const parents = pgTable('parents', {
   photoUrl: text('photo_url'),
   /** Minor units of tenant currency — used for concession/scholarship decisions. */
   annualIncome: bigint('annual_income', { mode: 'number' }),
+  /** Set when created via bulk import — enables rollback (P1-MOD-16). */
+  importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+    onDelete: 'set null',
+  }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
