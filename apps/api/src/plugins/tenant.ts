@@ -9,6 +9,8 @@ export interface TenantContext {
   name: string;
   subscriptionStatus: string;
   instituteType: string;
+  /** Tenant-level settings JSONB (report-card template, terminology, flags…). */
+  config: Record<string, unknown>;
 }
 
 declare module 'fastify' {
@@ -74,9 +76,10 @@ export const tenantPlugin = fp(
           name: string;
           subscription_status: string;
           institute_type: string;
+          config: Record<string, unknown> | null;
           is_active: boolean;
         }>(
-          `SELECT id, slug, name, subscription_status, institute_type, is_active
+          `SELECT id, slug, name, subscription_status, institute_type, config, is_active
            FROM tenants WHERE slug = $1`,
           [slug],
         );
@@ -88,6 +91,7 @@ export const tenantPlugin = fp(
             name: row.name,
             subscriptionStatus: row.subscription_status,
             instituteType: row.institute_type,
+            config: row.config ?? {},
           };
           if (row.is_active) {
             await app.redis

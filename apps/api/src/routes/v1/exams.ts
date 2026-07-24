@@ -1013,6 +1013,7 @@ export async function examRoutes(app: FastifyInstance) {
       schema: {
         tags: ['exams'],
         params: z.object({ id: z.string().uuid(), studentId: z.string().uuid() }),
+        querystring: z.object({ template: z.enum(['generic', 'cbse']).optional() }),
       },
     },
     async (request, reply) => {
@@ -1063,27 +1064,35 @@ export async function examRoutes(app: FastifyInstance) {
         return { card, exam, student, subjectRows };
       });
 
-      const html = renderReportCardHtml({
-        schoolName: request.tenant!.name,
-        examName: assembled.exam.name,
-        studentName: [assembled.student.firstName, assembled.student.lastName]
-          .filter(Boolean)
-          .join(' '),
-        admissionNumber: assembled.student.admissionNumber,
-        className: assembled.student.className,
-        subjects: assembled.subjectRows.map((s) => ({
-          subject: s.subject,
-          marks: s.isAbsent || s.isExempt ? null : s.marks,
-          maxMarks: s.maxMarks,
-          grade: s.grade,
-          status: s.isExempt ? 'exempt' : s.isAbsent ? 'absent' : 'ok',
-        })),
-        totalMarks: assembled.card.totalMarks,
-        maxMarks: assembled.card.maxMarks,
-        percentage: assembled.card.percentageBp == null ? null : assembled.card.percentageBp / 100,
-        grade: assembled.card.grade,
-        rank: assembled.card.rank,
-      });
+      // Template: explicit query override → tenant config → generic default.
+      const configured = request.tenant!.config?.reportCardTemplate;
+      const template = request.query.template ?? (configured === 'cbse' ? 'cbse' : 'generic');
+
+      const html = renderReportCardHtml(
+        {
+          schoolName: request.tenant!.name,
+          examName: assembled.exam.name,
+          studentName: [assembled.student.firstName, assembled.student.lastName]
+            .filter(Boolean)
+            .join(' '),
+          admissionNumber: assembled.student.admissionNumber,
+          className: assembled.student.className,
+          subjects: assembled.subjectRows.map((s) => ({
+            subject: s.subject,
+            marks: s.isAbsent || s.isExempt ? null : s.marks,
+            maxMarks: s.maxMarks,
+            grade: s.grade,
+            status: s.isExempt ? 'exempt' : s.isAbsent ? 'absent' : 'ok',
+          })),
+          totalMarks: assembled.card.totalMarks,
+          maxMarks: assembled.card.maxMarks,
+          percentage:
+            assembled.card.percentageBp == null ? null : assembled.card.percentageBp / 100,
+          grade: assembled.card.grade,
+          rank: assembled.card.rank,
+        },
+        template,
+      );
 
       let pdf: Buffer;
       try {

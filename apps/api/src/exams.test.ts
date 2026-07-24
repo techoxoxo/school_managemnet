@@ -735,6 +735,15 @@ describe.skipIf(!CHROME_UP)('report-card PDF (P2-MOD-18/19)', () => {
     expect(res.headers['content-type']).toContain('application/pdf');
     // PDF magic bytes.
     expect(res.rawPayload.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+    // CBSE template variant (P2-MOD-19) renders too.
+    const cbse = await app.inject({
+      method: 'GET',
+      url: `/v1/exams/${exam}/students/${student}/report-card.pdf?template=cbse`,
+      headers: auth(),
+    });
+    expect(cbse.statusCode).toBe(200);
+    expect(cbse.rawPayload.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   });
 
   it('404s for a student without a computed report card', async () => {
