@@ -8,6 +8,7 @@ import {
   createDb,
   createPool,
   outboxEvents,
+  staffMembers,
   tenants,
   users,
   userTenantRoles,
@@ -35,6 +36,7 @@ let tenantId: string;
 let branchId: string;
 let adminToken: string;
 let teacherToken: string;
+let teacherUserId: string;
 
 const auth = (t: string) => ({ 'x-tenant-slug': SLUG, authorization: `Bearer ${t}` });
 const login = async (email: string) =>
@@ -75,6 +77,7 @@ beforeAll(async () => {
       { email: TEACHER_EMAIL, passwordHash, status: 'active' },
     ])
     .returning();
+  teacherUserId = ins[1]!.id;
   await adminDb.insert(userTenantRoles).values([
     { userId: ins[0]!.id, tenantId, role: 'tenant_admin', isPrimaryRole: true },
     { userId: ins[1]!.id, tenantId, role: 'teacher', isPrimaryRole: true },
@@ -272,5 +275,124 @@ describe('attendance marking + absent notification (P1-MOD-23 / P1-API-03)', () 
       .from(outboxEvents)
       .where(and(eq(outboxEvents.aggregateId, s), eq(outboxEvents.eventType, 'attendance.absent')));
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('staff attendance: manual marking + self check-in (P1-MOD-27)', () => {
+  let staffId: string;
+
+  it('admin bulk-marks staff attendance; register reflects it', async () => {
+    staffId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/staff',
+        headers: auth(adminToken),
+        payload: { branchId, employeeId: `SA-${suffix}`, firstName: 'Seymour' },
+      })
+    ).json().data.id;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/mark',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        date: '2026-07-20',
+        entries: [{ staffId, status: 'present', checkInTime: '09:00' }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ marked: 1 });
+
+    const daily = await app.inject({
+      method: 'GET',
+      url: `/v1/staff-attendance/daily?date=2026-07-20&branchId=${branchId}`,
+      headers: auth(adminToken),
+    });
+    const row = daily.json().data.find((x: { staffId: string }) => x.staffId === staffId);
+    expect(row).toMatchObject({ status: 'present', firstName: 'Seymour' });
+  });
+
+  it('re-marking the same day is idempotent (upsert)', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/mark',
+      headers: auth(adminToken),
+      payload: { branchId, date: '2026-07-20', entries: [{ staffId, status: 'on_leave' }] },
+    });
+    const daily = await app.inject({
+      method: 'GET',
+      url: `/v1/staff-attendance/daily?date=2026-07-20&branchId=${branchId}`,
+      headers: auth(adminToken),
+    });
+    const rows = daily.json().data.filter((x: { staffId: string }) => x.staffId === staffId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe('on_leave');
+  });
+
+  it('teacher (no staff.manage) cannot bulk-mark → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/mark',
+      headers: auth(teacherToken),
+      payload: { branchId, date: '2026-07-22', entries: [{ staffId, status: 'present' }] },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('self check-in then check-out records times for the caller only', async () => {
+    // Link the teacher's user account to a staff record.
+    const [teacherStaff] = await adminDb
+      .insert(staffMembers)
+      .values({
+        tenantId,
+        branchId,
+        userId: teacherUserId,
+        employeeId: `SELF-${suffix}`,
+        firstName: 'Ned',
+      })
+      .returning();
+
+    const checkIn = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/check-in',
+      headers: auth(teacherToken),
+      payload: { date: '2026-07-23', checkInTime: '08:45' },
+    });
+    expect(checkIn.statusCode).toBe(200);
+    expect(checkIn.json().data).toMatchObject({
+      staffId: teacherStaff!.id,
+      status: 'present',
+      checkInTime: '08:45:00',
+    });
+
+    const checkOut = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/check-out',
+      headers: auth(teacherToken),
+      payload: { date: '2026-07-23', checkOutTime: '17:30' },
+    });
+    expect(checkOut.statusCode).toBe(200);
+    expect(checkOut.json().data.checkOutTime).toBe('17:30:00');
+  });
+
+  it('check-in without a linked staff record → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/check-in',
+      headers: auth(adminToken), // admin user has no staff_members row
+      payload: { date: '2026-07-23' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('check-out before any check-in → 404', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/staff-attendance/check-out',
+      headers: auth(teacherToken),
+      payload: { date: '2026-11-30' },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });
