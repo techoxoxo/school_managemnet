@@ -105,6 +105,22 @@ export const feePayments = pgTable(
   (t) => [uniqueIndex('fee_payments_receipt_unique').on(t.tenantId, t.receiptNumber)],
 );
 
+/** Which dues a payment covered, so a bounce/refund can be reversed exactly. */
+export const feePaymentAllocations = pgTable('fee_payment_allocations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  paymentId: uuid('payment_id')
+    .notNull()
+    .references(() => feePayments.id, { onDelete: 'cascade' }),
+  dueId: uuid('due_id')
+    .notNull()
+    .references(() => feeDues.id, { onDelete: 'cascade' }),
+  amount: bigint('amount', { mode: 'number' }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** A concession applied to a student's fees (approval workflow). */
 export const feeDiscounts = pgTable('fee_discounts', {
   id: uuid('id').primaryKey().defaultRandom(),

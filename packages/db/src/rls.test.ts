@@ -51,6 +51,7 @@ const TENANT_SCOPED_TABLES = [
   'fee_structure_items',
   'fee_dues',
   'fee_payments',
+  'fee_payment_allocations',
   'fee_discounts',
 ];
 

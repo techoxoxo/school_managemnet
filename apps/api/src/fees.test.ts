@@ -384,3 +384,92 @@ describe('discounts & concessions (P2-MOD-05)', () => {
     expect(res.json().data.applied).toBe(false);
   });
 });
+
+describe('payment reversal: bounce & refund (P2-MOD-09)', () => {
+  let rStudent: string;
+  let paymentId: string;
+
+  it('collecting then bouncing a cheque restores the outstanding balance', async () => {
+    rStudent = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `FR-${suffix}`,
+          firstName: 'Reversal',
+          currentClassId: classId,
+          admissionDate: '2026-04-01',
+        },
+      })
+    ).json().data.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+
+    const pay = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${rStudent}/payments`,
+      headers: auth(adminToken),
+      payload: { amount: 8000, method: 'cheque', reference: 'CHQ-77' },
+    });
+    paymentId = pay.json().data.payment.id;
+    const mid = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${rStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(mid.json().data.totalOutstanding).toBe(9000); // 17000 - 8000
+
+    const bounce = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/${paymentId}/reverse`,
+      headers: auth(adminToken),
+      payload: { type: 'bounce', reason: 'insufficient funds' },
+    });
+    expect(bounce.statusCode).toBe(200);
+    expect(bounce.json().data.payment.status).toBe('bounced');
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${rStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(17000); // fully restored
+  });
+
+  it('cannot reverse an already-reversed payment → 409', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/${paymentId}/reverse`,
+      headers: auth(adminToken),
+      payload: { type: 'refund' },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('refund reverses a completed payment', async () => {
+    const pay = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${rStudent}/payments`,
+      headers: auth(adminToken),
+      payload: { amount: 2000, method: 'cash' },
+    });
+    const refund = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/${pay.json().data.payment.id}/reverse`,
+      headers: auth(adminToken),
+      payload: { type: 'refund' },
+    });
+    expect(refund.json().data.payment.status).toBe('refunded');
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${rStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(17000);
+  });
+});

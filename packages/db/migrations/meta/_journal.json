@@ -155,6 +155,20 @@
       "when": 1784928548355,
       "tag": "0021_fees-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784929818390,
+      "tag": "0022_fee-payment-allocations",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784929818890,
+      "tag": "0023_fee-payment-allocations-rls",
+      "breakpoints": true
     }
   ]
 }

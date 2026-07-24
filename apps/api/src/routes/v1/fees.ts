@@ -9,6 +9,7 @@ import {
   emitEvent,
   feeDiscounts,
   feeDues,
+  feePaymentAllocations,
   feePayments,
   feeStructureItems,
   feeStructures,
@@ -357,6 +358,7 @@ export async function feeRoutes(app: FastifyInstance) {
           .orderBy(asc(feeDues.dueDate));
         let remaining = amount;
         let allocated = 0;
+        const applied: Array<{ dueId: string; amount: number }> = [];
         for (const d of dues) {
           if (remaining <= 0) break;
           const owed = outstanding(d.amountDue, d.amountPaid, d.discountAmount);
@@ -373,6 +375,7 @@ export async function feeRoutes(app: FastifyInstance) {
             .where(eq(feeDues.id, d.id));
           remaining -= pay;
           allocated += pay;
+          applied.push({ dueId: d.id, amount: pay });
         }
 
         // Receipt number: R-<year>-<zero-padded per-tenant sequence>.
@@ -393,6 +396,17 @@ export async function feeRoutes(app: FastifyInstance) {
             remarks: remarks ?? null,
           })
           .returning();
+
+        if (applied.length) {
+          await db.insert(feePaymentAllocations).values(
+            applied.map((a) => ({
+              tenantId: request.tenant!.id,
+              paymentId: payment!.id,
+              dueId: a.dueId,
+              amount: a.amount,
+            })),
+          );
+        }
 
         await writeAudit(db, request.auth!, {
           action: 'create',
@@ -415,6 +429,70 @@ export async function feeRoutes(app: FastifyInstance) {
         };
       });
       return reply.status(201).send({ success: true as const, data: result });
+    },
+  );
+
+  // ── Reverse a payment: cheque bounce / refund (P2-MOD-09) ───
+  r.post(
+    '/payments/:id/reverse',
+    {
+      config: collect,
+      schema: {
+        tags: ['fees'],
+        params: idParamSchema,
+        body: z.object({
+          type: z.enum(['bounce', 'refund']),
+          reason: z.string().max(300).optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const result = await request.tenantDb(async (db) => {
+        const [payment] = await db
+          .select()
+          .from(feePayments)
+          .where(eq(feePayments.id, request.params.id))
+          .limit(1);
+        assertFound(payment, 'Payment');
+        if (payment.status !== 'completed') {
+          throw new AppError(ErrorCodes.CONFLICT, `Payment is already ${payment.status}`, 409);
+        }
+
+        // Undo each due this payment covered (exact reversal via allocations).
+        const allocations = await db
+          .select()
+          .from(feePaymentAllocations)
+          .where(eq(feePaymentAllocations.paymentId, payment.id));
+        for (const a of allocations) {
+          const [d] = await db.select().from(feeDues).where(eq(feeDues.id, a.dueId)).limit(1);
+          if (!d) continue;
+          const nextPaid = Math.max(0, d.amountPaid - a.amount);
+          await db
+            .update(feeDues)
+            .set({
+              amountPaid: nextPaid,
+              status: dueStatus(d.amountDue, nextPaid, d.discountAmount),
+              updatedAt: new Date(),
+            })
+            .where(eq(feeDues.id, d.id));
+        }
+
+        const newStatus = request.body.type === 'bounce' ? 'bounced' : 'refunded';
+        const [row] = await db
+          .update(feePayments)
+          .set({ status: newStatus, remarks: request.body.reason ?? payment.remarks })
+          .where(eq(feePayments.id, payment.id))
+          .returning();
+        await writeAudit(db, request.auth!, {
+          action: 'update',
+          entityType: 'fee_payment',
+          entityId: payment.id,
+          oldValues: { status: 'completed' },
+          newValues: { status: newStatus, reversed: allocations.length },
+        });
+        return { payment: row!, reversedDues: allocations.length };
+      });
+      return { success: true as const, data: result };
     },
   );
 
