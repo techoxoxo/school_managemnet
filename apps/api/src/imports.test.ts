@@ -183,3 +183,51 @@ describe('bulk import: commit + rollback (P1-MOD-16)', () => {
     expect(batches.length).toBe(0);
   });
 });
+
+describe('staff bulk import (P1-MOD-21, reuses the framework)', () => {
+  it('commits a staff batch then rolls it back', async () => {
+    const commit = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/staff',
+      headers: auth(),
+      payload: {
+        branchId,
+        tag: 'New hires',
+        dryRun: false,
+        rows: [
+          { employeeId: `E-${suffix}-1`, firstName: 'Edna', designation: 'Teacher' },
+          { employeeId: `E-${suffix}-2`, firstName: 'Otto', employmentType: 'contract' },
+        ],
+      },
+    });
+    expect(commit.statusCode).toBe(201);
+    const staffBatch = commit.json().data.batchId;
+    expect(commit.json().data.created).toBe(2);
+
+    const rollback = await app.inject({
+      method: 'DELETE',
+      url: `/v1/imports/${staffBatch}`,
+      headers: auth(),
+    });
+    expect(rollback.statusCode).toBe(200);
+    expect(rollback.json().data.staffDeleted).toBe(2);
+  });
+
+  it('rejects a duplicate employeeId within the file (dry-run)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/staff',
+      headers: auth(),
+      payload: {
+        branchId,
+        dryRun: true,
+        rows: [
+          { employeeId: `SAME-${suffix}`, firstName: 'A' },
+          { employeeId: `SAME-${suffix}`, firstName: 'B' },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.invalid).toBe(1);
+  });
+});

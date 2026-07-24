@@ -17,6 +17,7 @@ import {
   staffAttendanceStatusEnum,
   staffStatusEnum,
 } from './enums.js';
+import { importBatches } from './imports.js';
 import { branches, tenants } from './tenants.js';
 import { users } from './users.js';
 
@@ -76,6 +77,10 @@ export const staffMembers = pgTable(
     address: jsonb('address'),
     emergencyContact: jsonb('emergency_contact'),
     status: staffStatusEnum('status').notNull().default('active'),
+    /** Set when created via bulk import — enables rollback (P1-MOD-21). */
+    importBatchId: uuid('import_batch_id').references(() => importBatches.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

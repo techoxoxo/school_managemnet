@@ -151,12 +151,12 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 1.3 Staff Basics
 
-| ID        | Task                                                                   | Depends on            | Status | Notes                                                                                                                                     |
-| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ✅     | staff_members + staff_attendance + departments schema; staff CRUD, employee# unique→409                                                   |
-| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | ✅     | API (/staff/:id/account + /roles) + web Staff page: add staff, create login (email+role), account status; authed BFF proxy; verified live |
-| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ✅     | departments CRUD (factory)                                                                                                                |
-| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | ⬜     |                                                                                                                                           |
+| ID        | Task                                                                   | Depends on            | Status | Notes                                                                                                                                              |
+| --------- | ---------------------------------------------------------------------- | --------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-MOD-18 | Staff schema (§4.E core: staff_members) + CRUD + employee ID generator | P0-DB-05              | ✅     | staff_members + staff_attendance + departments schema; staff CRUD, employee# unique→409                                                            |
+| P1-MOD-19 | Staff user account creation + role assignment UI                       | P1-MOD-18, P0-AUTH-05 | ✅     | API (/staff/:id/account + /roles) + web Staff page: add staff, create login (email+role), account status; authed BFF proxy; verified live          |
+| P1-MOD-20 | Departments & designations                                             | P1-MOD-18             | ✅     | departments CRUD (factory)                                                                                                                         |
+| P1-MOD-21 | Staff bulk import (reuses P1-MOD-16 framework)                         | P1-MOD-16, P1-MOD-18  | 🟨     | API done: /imports/staff (template, dry-run, commit, rollback via shared framework); staff_members.import_batch_id; shares the import UI (pending) |
 
 ## 1.4 Attendance
 
