@@ -34,9 +34,19 @@ jobs:
           --health-timeout 3s
           --health-retries 10
 
+      meilisearch:
+        image: getmeili/meilisearch:v1.12
+        env:
+          MEILI_MASTER_KEY: schoolmate_dev_master_key
+          MEILI_NO_ANALYTICS: 'true'
+        ports:
+          - 7700:7700
+
     env:
       DATABASE_URL: postgres://schoolmate:schoolmate_dev@localhost:5432/schoolmate
       DATABASE_APP_URL: postgres://schoolmate_app:schoolmate_app_dev@localhost:5432/schoolmate
+      MEILI_HOST: http://localhost:7700
+      MEILI_MASTER_KEY: schoolmate_dev_master_key
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +67,13 @@ jobs:
 
       - name: Run database migrations
         run: npm run migrate -w @schoolmate/db
+
+      - name: Wait for Meilisearch
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:7700/health && break
+            echo "waiting for meilisearch ($i)..."; sleep 2
+          done
 
       - name: Test
         run: npm run test

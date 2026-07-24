@@ -10,6 +10,9 @@ export const env = parseEnv({
     .string()
     .default('postgres://schoolmate_app:schoolmate_app_dev@localhost:5433/schoolmate'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
+  /** Meilisearch (P1-MOD-17). Search degrades gracefully when unreachable. */
+  MEILI_HOST: z.string().default('http://127.0.0.1:7700'),
+  MEILI_MASTER_KEY: z.string().default('schoolmate_dev_master_key'),
   /** Base domain for subdomain → tenant resolution (springfield.<BASE_DOMAIN>). */
   BASE_DOMAIN: z.string().default('localhost'),
   /** Seconds a slug → tenant lookup stays cached in Redis. */

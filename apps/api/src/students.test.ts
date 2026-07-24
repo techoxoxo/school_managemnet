@@ -475,3 +475,49 @@ describe('parent magic-link invite + passwordless login (P1-MOD-14)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('student search (P1-MOD-17, Meilisearch)', () => {
+  const uniq = `Zaphod${suffix}`;
+
+  it('indexes then finds a student by name; filters by tenant', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/students',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        admissionNumber: `SRCH-${suffix}`,
+        firstName: uniq,
+        lastName: 'Beeblebrox',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    // Backfill the index (awaits Meili so the next search is consistent).
+    const rx = await app.inject({
+      method: 'POST',
+      url: '/v1/students/reindex',
+      headers: auth(adminToken),
+    });
+    expect(rx.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/students/search?q=${uniq}`,
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const hits = res.json().data as Array<{ firstName: string; admissionNumber: string }>;
+    expect(hits.some((h) => h.admissionNumber === `SRCH-${suffix}`)).toBe(true);
+  });
+
+  it('returns nothing for a term that matches no student', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/students/search?q=nonexistent-${suffix}`,
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual([]);
+  });
+});

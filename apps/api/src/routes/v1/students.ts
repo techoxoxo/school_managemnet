@@ -8,6 +8,13 @@ import type { AuthContext } from '../../plugins/auth.js';
 import { writeAudit } from '../../lib/audit.js';
 import { decryptField, encryptField, maskId } from '../../lib/encryption.js';
 import { assertFound, idParamSchema, listQuerySchema, paginationMeta } from '../../lib/http.js';
+import {
+  indexStudent,
+  removeStudent,
+  reindexStudents,
+  searchStudentIds,
+  toStudentDoc,
+} from '../../lib/search.js';
 
 const createSchema = z.object({
   branchId: z.string().uuid(),
@@ -129,6 +136,7 @@ export async function studentRoutes(app: FastifyInstance) {
         });
         return row!;
       });
+      indexStudent(toStudentDoc(created)); // best-effort search index (P1-MOD-17)
       return reply
         .status(201)
         .send({ success: true as const, data: present(created, request.auth!) });
@@ -179,6 +187,7 @@ export async function studentRoutes(app: FastifyInstance) {
         });
         return row!;
       });
+      indexStudent(toStudentDoc(updated)); // keep the search index in sync (P1-MOD-17)
       return { success: true as const, data: present(updated, request.auth!) };
     },
   );
@@ -201,6 +210,7 @@ export async function studentRoutes(app: FastifyInstance) {
           entityId: request.params.id,
         });
       });
+      removeStudent(request.params.id); // drop from the search index (P1-MOD-17)
       return { success: true as const, data: { deleted: true } };
     },
   );
@@ -289,6 +299,49 @@ export async function studentRoutes(app: FastifyInstance) {
         success: true as const,
         data: siblings.map((row) => present(row, request.auth!)),
       };
+    },
+  );
+
+  // ── Full-text search (P1-MOD-17, Meilisearch) ──────────────
+  // Meili returns matching ids (tenant-filtered); rows are re-loaded under RLS
+  // and run through present(), so masking/permissions still apply.
+  r.get(
+    '/students/search',
+    {
+      config: view,
+      schema: {
+        tags: ['students'],
+        querystring: z.object({
+          q: z.string().min(1),
+          classId: z.string().uuid().optional(),
+          sectionId: z.string().uuid().optional(),
+          status: z.string().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const { q, classId, sectionId, status } = request.query;
+      const ids = await searchStudentIds(request.tenant!.id, q, { classId, sectionId, status });
+      if (ids.length === 0) return { success: true as const, data: [] };
+      const rows = await request.tenantDb((db) =>
+        db.select().from(students).where(inArray(students.id, ids)),
+      );
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      return { success: true as const, data: ordered.map((row) => present(row, request.auth!)) };
+    },
+  );
+
+  // Backfill the index for this tenant (after bulk import or first setup).
+  r.post(
+    '/students/reindex',
+    { config: manage, schema: { tags: ['students'] } },
+    async (request) => {
+      const rows = await request.tenantDb((db) => db.select().from(students));
+      await reindexStudents(rows.map(toStudentDoc));
+      return { success: true as const, data: { indexed: rows.length } };
     },
   );
 
