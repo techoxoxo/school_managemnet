@@ -117,3 +117,101 @@ describe('grading systems (P2-MOD-13)', () => {
     expect(list.json().data.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('exam scheduling + datesheet (P2-MOD-14)', () => {
+  let sessionId: string;
+  let classId: string;
+  let subj1: string;
+  let subj2: string;
+  let examId: string;
+
+  it('sets up session, class and subjects', async () => {
+    sessionId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/academic-sessions',
+        headers: auth(),
+        payload: { branchId, name: '2026-2027', startDate: '2026-04-01', endDate: '2027-03-31' },
+      })
+    ).json().data.id;
+    classId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/classes',
+        headers: auth(),
+        payload: { branchId, name: 'Grade 5', classType: 'middle' },
+      })
+    ).json().data.id;
+    subj1 = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/subjects',
+        headers: auth(),
+        payload: { branchId, name: 'Math', code: `M-${suffix}` },
+      })
+    ).json().data.id;
+    subj2 = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/subjects',
+        headers: auth(),
+        payload: { branchId, name: 'Science', code: `S-${suffix}` },
+      })
+    ).json().data.id;
+    expect(subj1 && subj2).toBeTruthy();
+  });
+
+  it('creates an exam type and an exam', async () => {
+    const type = await app.inject({
+      method: 'POST',
+      url: '/v1/exam-types',
+      headers: auth(),
+      payload: { branchId, name: 'Term 1', weightage: 50 },
+    });
+    expect(type.statusCode).toBe(201);
+
+    const exam = await app.inject({
+      method: 'POST',
+      url: '/v1/exams',
+      headers: auth(),
+      payload: {
+        branchId,
+        academicSessionId: sessionId,
+        classId,
+        examTypeId: type.json().data.id,
+        name: 'Term 1 Exam',
+      },
+    });
+    expect(exam.statusCode).toBe(201);
+    examId = exam.json().data.id;
+  });
+
+  it('builds a datesheet and rejects a same-day clash', async () => {
+    const p1 = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${examId}/subjects`,
+      headers: auth(),
+      payload: { subjectId: subj1, examDate: '2026-12-01', maxMarks: 100, passMarks: 33 },
+    });
+    expect(p1.statusCode).toBe(201);
+
+    const clash = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${examId}/subjects`,
+      headers: auth(),
+      payload: { subjectId: subj2, examDate: '2026-12-01' },
+    });
+    expect(clash.statusCode).toBe(409);
+
+    const p2 = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${examId}/subjects`,
+      headers: auth(),
+      payload: { subjectId: subj2, examDate: '2026-12-03' },
+    });
+    expect(p2.statusCode).toBe(201);
+
+    const detail = await app.inject({ method: 'GET', url: `/v1/exams/${examId}`, headers: auth() });
+    expect(detail.json().data.datesheet).toHaveLength(2);
+  });
+});

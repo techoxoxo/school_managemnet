@@ -2,8 +2,8 @@
  * P2-MOD-13: grading systems. Presets (CBSE/GPA/percentage) + custom scales.
  * Exams/datesheet/marks build on this in later tasks.
  */
-import { gradingSystems } from '@schoolmate/db';
-import { GRADING_PRESETS } from '@schoolmate/shared';
+import { examSubjects, examTypes, exams, gradingSystems } from '@schoolmate/db';
+import { AppError, ErrorCodes, GRADING_PRESETS } from '@schoolmate/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -156,5 +156,248 @@ export async function examRoutes(app: FastifyInstance) {
     },
   );
 
-  void and; // reserved for multi-column filters as exam routes land
+  // ── Exam types (P2-MOD-14) ──────────────────────────────────
+  r.post(
+    '/exam-types',
+    {
+      config: manage,
+      schema: {
+        tags: ['exams'],
+        body: z.object({
+          branchId: z.string().uuid(),
+          name: z.string().min(1).max(80),
+          weightage: z.number().int().min(0).max(100).optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const created = await request.tenantDb(async (db) => {
+        const [row] = await db
+          .insert(examTypes)
+          .values({
+            tenantId: request.tenant!.id,
+            branchId: request.body.branchId,
+            name: request.body.name,
+            weightage: request.body.weightage ?? 100,
+          })
+          .returning();
+        return row!;
+      });
+      return reply.status(201).send({ success: true as const, data: created });
+    },
+  );
+
+  r.get(
+    '/exam-types',
+    {
+      config: view,
+      schema: {
+        tags: ['exams'],
+        querystring: z.object({ branchId: z.string().uuid().optional() }),
+      },
+    },
+    async (request) => {
+      const rows = await request.tenantDb((db) =>
+        db
+          .select()
+          .from(examTypes)
+          .where(
+            request.query.branchId ? eq(examTypes.branchId, request.query.branchId) : undefined,
+          )
+          .orderBy(asc(examTypes.name)),
+      );
+      return { success: true as const, data: rows };
+    },
+  );
+
+  // ── Exams (P2-MOD-14) ───────────────────────────────────────
+  r.post(
+    '/exams',
+    {
+      config: manage,
+      schema: {
+        tags: ['exams'],
+        body: z.object({
+          branchId: z.string().uuid(),
+          academicSessionId: z.string().uuid(),
+          examTypeId: z.string().uuid().optional(),
+          classId: z.string().uuid().optional(),
+          gradingSystemId: z.string().uuid().optional(),
+          name: z.string().min(1).max(120),
+          maxMarks: z.number().int().min(1).max(1000).optional(),
+          startDate: z.string().date().optional(),
+          endDate: z.string().date().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const created = await request.tenantDb(async (db) => {
+        const [row] = await db
+          .insert(exams)
+          .values({ ...request.body, tenantId: request.tenant!.id })
+          .returning();
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'exam',
+          entityId: row!.id,
+          newValues: { name: row!.name },
+        });
+        return row!;
+      });
+      return reply.status(201).send({ success: true as const, data: created });
+    },
+  );
+
+  r.get(
+    '/exams',
+    {
+      config: view,
+      schema: {
+        tags: ['exams'],
+        querystring: z.object({
+          branchId: z.string().uuid().optional(),
+          academicSessionId: z.string().uuid().optional(),
+          classId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const filters = [
+        request.query.branchId ? eq(exams.branchId, request.query.branchId) : undefined,
+        request.query.academicSessionId
+          ? eq(exams.academicSessionId, request.query.academicSessionId)
+          : undefined,
+        request.query.classId ? eq(exams.classId, request.query.classId) : undefined,
+      ].filter((f): f is NonNullable<typeof f> => f !== undefined);
+      const rows = await request.tenantDb((db) =>
+        db
+          .select()
+          .from(exams)
+          .where(filters.length ? and(...filters) : undefined)
+          .orderBy(asc(exams.startDate)),
+      );
+      return { success: true as const, data: rows };
+    },
+  );
+
+  r.get(
+    '/exams/:id',
+    { config: view, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const data = await request.tenantDb(async (db) => {
+        const [exam] = await db
+          .select()
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(exam, 'Exam');
+        const datesheet = await db
+          .select()
+          .from(examSubjects)
+          .where(eq(examSubjects.examId, exam.id))
+          .orderBy(asc(examSubjects.examDate));
+        return { ...exam, datesheet };
+      });
+      return { success: true as const, data };
+    },
+  );
+
+  r.patch(
+    '/exams/:id',
+    {
+      config: manage,
+      schema: {
+        tags: ['exams'],
+        params: idParamSchema,
+        body: z.object({
+          status: z.enum(['draft', 'scheduled', 'ongoing', 'completed']).optional(),
+          name: z.string().min(1).max(120).optional(),
+          gradingSystemId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const updated = await request.tenantDb(async (db) => {
+        const [before] = await db
+          .select()
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(before, 'Exam');
+        const [row] = await db
+          .update(exams)
+          .set({ ...request.body, updatedAt: new Date() })
+          .where(eq(exams.id, request.params.id))
+          .returning();
+        return row!;
+      });
+      return { success: true as const, data: updated };
+    },
+  );
+
+  // ── Datesheet: add a subject paper, with same-day conflict check ──
+  r.post(
+    '/exams/:id/subjects',
+    {
+      config: manage,
+      schema: {
+        tags: ['exams'],
+        params: idParamSchema,
+        body: z.object({
+          subjectId: z.string().uuid(),
+          examDate: z.string().date().optional(),
+          startTime: z
+            .string()
+            .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/)
+            .optional(),
+          maxMarks: z.number().int().min(1).max(1000).optional(),
+          passMarks: z.number().int().min(0).max(1000).optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const created = await request.tenantDb(async (db) => {
+        const [exam] = await db
+          .select({ id: exams.id })
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(exam, 'Exam');
+        // Datesheet conflict: this class can't sit two papers the same day.
+        if (request.body.examDate) {
+          const clash = await db
+            .select({ id: examSubjects.id })
+            .from(examSubjects)
+            .where(
+              and(
+                eq(examSubjects.examId, request.params.id),
+                eq(examSubjects.examDate, request.body.examDate),
+              ),
+            )
+            .limit(1);
+          if (clash.length > 0) {
+            throw new AppError(
+              ErrorCodes.CONFLICT,
+              `Another paper is already scheduled on ${request.body.examDate}`,
+              409,
+            );
+          }
+        }
+        const [row] = await db
+          .insert(examSubjects)
+          .values({
+            tenantId: request.tenant!.id,
+            examId: request.params.id,
+            subjectId: request.body.subjectId,
+            examDate: request.body.examDate ?? null,
+            startTime: request.body.startTime ?? null,
+            maxMarks: request.body.maxMarks ?? 100,
+            passMarks: request.body.passMarks ?? 33,
+          })
+          .returning();
+        return row!;
+      });
+      return reply.status(201).send({ success: true as const, data: created });
+    },
+  );
 }
