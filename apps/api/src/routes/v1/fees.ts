@@ -17,7 +17,7 @@ import {
   students,
 } from '@schoolmate/db';
 import { AppError, ErrorCodes, EVENT_TYPES, dueStatus, outstanding } from '@schoolmate/shared';
-import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { TenantDb } from '@schoolmate/db';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -493,6 +493,144 @@ export async function feeRoutes(app: FastifyInstance) {
         return { payment: row!, reversedDues: allocations.length };
       });
       return { success: true as const, data: result };
+    },
+  );
+
+  // ── Fee reports (P2-MOD-11) ─────────────────────────────────
+  const N = (v: unknown) => Number(v ?? 0);
+
+  // Outstanding + collection-efficiency snapshot.
+  r.get(
+    '/fees/reports/summary',
+    {
+      config: view,
+      schema: { tags: ['fees'], querystring: z.object({ branchId: z.string().uuid().optional() }) },
+    },
+    async (request) => {
+      const branchId = request.query.branchId ?? null;
+      const data = await request.tenantDb(async (db) => {
+        const totals = (
+          await db.execute(sql`
+            SELECT COALESCE(SUM(d.amount_due), 0) AS billed,
+                   COALESCE(SUM(d.discount_amount), 0) AS discount,
+                   COALESCE(SUM(d.amount_paid), 0) AS collected
+            FROM fee_dues d
+            ${branchId ? sql`JOIN students s ON s.id = d.student_id AND s.branch_id = ${branchId}` : sql``}
+          `)
+        ).rows[0] as { billed: string; discount: string; collected: string };
+        const defaulters = (
+          await db.execute(sql`
+            SELECT COUNT(*) AS n FROM (
+              SELECT d.student_id
+              FROM fee_dues d
+              ${branchId ? sql`JOIN students s ON s.id = d.student_id AND s.branch_id = ${branchId}` : sql``}
+              GROUP BY d.student_id
+              HAVING SUM(d.amount_due - d.discount_amount - d.amount_paid) > 0
+            ) t
+          `)
+        ).rows[0] as { n: string };
+
+        const billed = N(totals.billed);
+        const discount = N(totals.discount);
+        const collected = N(totals.collected);
+        const net = billed - discount;
+        const outstanding = net - collected;
+        return {
+          billed,
+          discount,
+          collected,
+          outstanding,
+          defaulters: N(defaulters.n),
+          collectionEfficiency: net === 0 ? 100 : Math.round((collected / net) * 1000) / 10,
+        };
+      });
+      return { success: true as const, data };
+    },
+  );
+
+  // Collection over a date range: by method + by day.
+  r.get(
+    '/fees/reports/collection',
+    {
+      config: view,
+      schema: {
+        tags: ['fees'],
+        querystring: z.object({
+          from: z.string().date(),
+          to: z.string().date(),
+          branchId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const { from, to } = request.query;
+      const branchId = request.query.branchId ?? null;
+      const data = await request.tenantDb(async (db) => {
+        const branchJoin = branchId
+          ? sql`JOIN students s ON s.id = p.student_id AND s.branch_id = ${branchId}`
+          : sql``;
+        const where = sql`p.status = 'completed' AND p.paid_at::date BETWEEN ${from} AND ${to}`;
+        const byMethod = (
+          await db.execute(sql`
+            SELECT p.method, COALESCE(SUM(p.amount), 0) AS total, COUNT(*) AS count
+            FROM fee_payments p ${branchJoin} WHERE ${where}
+            GROUP BY p.method ORDER BY total DESC
+          `)
+        ).rows as Array<{ method: string; total: string; count: string }>;
+        const byDay = (
+          await db.execute(sql`
+            SELECT p.paid_at::date AS day, COALESCE(SUM(p.amount), 0) AS total
+            FROM fee_payments p ${branchJoin} WHERE ${where}
+            GROUP BY day ORDER BY day
+          `)
+        ).rows as Array<{ day: string; total: string }>;
+        const total = byMethod.reduce((sum, m) => sum + N(m.total), 0);
+        return {
+          total,
+          byMethod: byMethod.map((m) => ({
+            method: m.method,
+            total: N(m.total),
+            count: N(m.count),
+          })),
+          byDay: byDay.map((d) => ({ day: d.day, total: N(d.total) })),
+        };
+      });
+      return { success: true as const, data };
+    },
+  );
+
+  // Head-wise billed vs collected.
+  r.get(
+    '/fees/reports/heads',
+    {
+      config: view,
+      schema: { tags: ['fees'], querystring: z.object({ branchId: z.string().uuid().optional() }) },
+    },
+    async (request) => {
+      const branchId = request.query.branchId ?? null;
+      const rows = (
+        await request.tenantDb((db) =>
+          db.execute(sql`
+            SELECT d.head,
+                   COALESCE(SUM(d.amount_due), 0) AS billed,
+                   COALESCE(SUM(d.discount_amount), 0) AS discount,
+                   COALESCE(SUM(d.amount_paid), 0) AS collected
+            FROM fee_dues d
+            ${branchId ? sql`JOIN students s ON s.id = d.student_id AND s.branch_id = ${branchId}` : sql``}
+            GROUP BY d.head ORDER BY billed DESC
+          `),
+        )
+      ).rows as Array<{ head: string; billed: string; discount: string; collected: string }>;
+      return {
+        success: true as const,
+        data: rows.map((r2) => ({
+          head: r2.head,
+          billed: N(r2.billed),
+          discount: N(r2.discount),
+          collected: N(r2.collected),
+          outstanding: N(r2.billed) - N(r2.discount) - N(r2.collected),
+        })),
+      };
     },
   );
 

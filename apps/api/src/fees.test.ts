@@ -473,3 +473,45 @@ describe('payment reversal: bounce & refund (P2-MOD-09)', () => {
     expect(after.json().data.totalOutstanding).toBe(17000);
   });
 });
+
+describe('fee reports (P2-MOD-11)', () => {
+  it('summary reports billed / collected / outstanding / efficiency / defaulters', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/fees/reports/summary',
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const d = res.json().data;
+    expect(d.billed).toBeGreaterThan(0);
+    // Identity always holds: outstanding = billed - discount - collected.
+    expect(d.outstanding).toBe(d.billed - d.discount - d.collected);
+    expect(d.defaulters).toBeGreaterThanOrEqual(1);
+    expect(d.collectionEfficiency).toBeGreaterThanOrEqual(0);
+  });
+
+  it('collection report totals completed payments by method and day', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/fees/reports/collection?from=2020-01-01&to=2035-12-31',
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const d = res.json().data;
+    expect(d.total).toBeGreaterThan(0);
+    expect(Array.isArray(d.byMethod)).toBe(true);
+    expect(d.byMethod.some((m: { method: string }) => m.method === 'cash')).toBe(true);
+  });
+
+  it('head-wise report groups dues by head', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/fees/reports/heads',
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const heads = res.json().data.map((h: { head: string }) => h.head);
+    expect(heads).toContain('Tuition');
+    expect(heads).toContain('Admission');
+  });
+});
