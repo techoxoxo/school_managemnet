@@ -13,6 +13,7 @@ import {
   feePayments,
   feeStructureItems,
   feeStructures,
+  parents,
   parentStudent,
   students,
 } from '@schoolmate/db';
@@ -631,6 +632,130 @@ export async function feeRoutes(app: FastifyInstance) {
           outstanding: N(r2.billed) - N(r2.discount) - N(r2.collected),
         })),
       };
+    },
+  );
+
+  // ── Defaulters + reminders (P2-MOD-10) ──────────────────────
+  const defaulterQuery = (branchId: string | null, minAmount: number) => sql`
+    SELECT d.student_id AS "studentId",
+           s.first_name AS "firstName", s.last_name AS "lastName",
+           s.admission_number AS "admissionNumber",
+           SUM(d.amount_due - d.discount_amount - d.amount_paid) AS outstanding
+    FROM fee_dues d
+    JOIN students s ON s.id = d.student_id
+    ${branchId ? sql`WHERE s.branch_id = ${branchId}` : sql``}
+    GROUP BY d.student_id, s.first_name, s.last_name, s.admission_number
+    HAVING SUM(d.amount_due - d.discount_amount - d.amount_paid) > ${minAmount}
+    ORDER BY outstanding DESC
+  `;
+
+  r.get(
+    '/fees/reports/defaulters',
+    {
+      config: view,
+      schema: {
+        tags: ['fees'],
+        querystring: z.object({
+          branchId: z.string().uuid().optional(),
+          minAmount: z.coerce.number().int().min(0).optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const branchId = request.query.branchId ?? null;
+      const minAmount = request.query.minAmount ?? 0;
+      const rows = (await request.tenantDb((db) => db.execute(defaulterQuery(branchId, minAmount))))
+        .rows as Array<{
+        studentId: string;
+        firstName: string;
+        lastName: string | null;
+        admissionNumber: string;
+        outstanding: string;
+      }>;
+      return {
+        success: true as const,
+        data: rows.map((r2) => ({
+          studentId: r2.studentId,
+          name: [r2.firstName, r2.lastName].filter(Boolean).join(' '),
+          admissionNumber: r2.admissionNumber,
+          outstanding: Number(r2.outstanding),
+        })),
+      };
+    },
+  );
+
+  // Emit an overdue reminder per defaulter (event-driven via the outbox).
+  r.post(
+    '/fees/reminders/send',
+    {
+      config: manage,
+      schema: {
+        tags: ['fees'],
+        body: z.object({
+          branchId: z.string().uuid().optional(),
+          minAmount: z.number().int().min(0).optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const branchId = request.body.branchId ?? null;
+      const minAmount = request.body.minAmount ?? 0;
+      const result = await request.tenantDb(async (db) => {
+        const defaulters = (await db.execute(defaulterQuery(branchId, minAmount))).rows as Array<{
+          studentId: string;
+          firstName: string;
+          lastName: string | null;
+          outstanding: string;
+        }>;
+        if (defaulters.length === 0) return { defaulters: 0, reminded: 0 };
+
+        const ids = defaulters.map((d) => d.studentId);
+        const links = await db
+          .select({
+            studentId: parentStudent.studentId,
+            userId: parents.userId,
+            phone: parents.phone,
+          })
+          .from(parentStudent)
+          .innerJoin(parents, eq(parents.id, parentStudent.parentId))
+          .where(inArray(parentStudent.studentId, ids));
+        const byStudent = new Map<
+          string,
+          Array<{ userId?: string | undefined; phone?: string | undefined }>
+        >();
+        for (const l of links) {
+          const arr = byStudent.get(l.studentId) ?? [];
+          arr.push({ userId: l.userId ?? undefined, phone: l.phone ?? undefined });
+          byStudent.set(l.studentId, arr);
+        }
+
+        let reminded = 0;
+        for (const d of defaulters) {
+          const recipients = byStudent.get(d.studentId) ?? [];
+          if (recipients.length === 0) continue;
+          await emitEvent(db, {
+            tenantId: request.tenant!.id,
+            type: EVENT_TYPES.FEE_PAYMENT_OVERDUE,
+            aggregateType: 'student',
+            aggregateId: d.studentId,
+            payload: {
+              studentId: d.studentId,
+              studentName: [d.firstName, d.lastName].filter(Boolean).join(' '),
+              outstanding: Number(d.outstanding),
+              recipients,
+            },
+          });
+          reminded += 1;
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'fee_reminder_run',
+          entityId: `${branchId ?? 'all'}:${new Date().toISOString().slice(0, 10)}`,
+          newValues: { defaulters: defaulters.length, reminded },
+        });
+        return { defaulters: defaulters.length, reminded };
+      });
+      return { success: true as const, data: result };
     },
   );
 

@@ -3,9 +3,16 @@
  * Structure → allocate (with mid-year pro-ration) → outstanding view →
  * collect (FIFO allocation, receipts, overpayment/advance).
  */
-import { createDb, createPool, tenants, users, userTenantRoles } from '@schoolmate/db';
+import {
+  createDb,
+  createPool,
+  outboxEvents,
+  tenants,
+  users,
+  userTenantRoles,
+} from '@schoolmate/db';
 import bcrypt from 'bcryptjs';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
@@ -513,5 +520,79 @@ describe('fee reports (P2-MOD-11)', () => {
     const heads = res.json().data.map((h: { head: string }) => h.head);
     expect(heads).toContain('Tuition');
     expect(heads).toContain('Admission');
+  });
+});
+
+describe('defaulters + reminders (P2-MOD-10)', () => {
+  it('lists defaulters above a threshold', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/fees/reports/defaulters?minAmount=1000',
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const rows = res.json().data as Array<{ outstanding: number }>;
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows.every((d) => d.outstanding > 1000)).toBe(true);
+    // Sorted descending by outstanding.
+    expect(rows).toEqual([...rows].sort((a, b) => b.outstanding - a.outstanding));
+  });
+
+  it('sends overdue reminders to defaulters with a linked parent (outbox event)', async () => {
+    // Give the mid-year student a parent with a phone so a reminder can fire.
+    const parentId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/parents',
+        headers: auth(adminToken),
+        payload: { firstName: 'Payer', phone: '555-0777' },
+      })
+    ).json().data.id;
+    // studentA still owes 0 (paid in full); use a fresh owing student with a parent.
+    const owing = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `FDEF-${suffix}`,
+          firstName: 'Owing',
+          currentClassId: classId,
+          admissionDate: '2026-04-01',
+        },
+      })
+    ).json().data.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/v1/students/${owing}/parents`,
+      headers: auth(adminToken),
+      payload: { parentId, isPrimaryContact: true },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/fees/reminders/send',
+      headers: auth(adminToken),
+      payload: { minAmount: 1000 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.reminded).toBeGreaterThanOrEqual(1);
+
+    const [event] = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(eq(outboxEvents.aggregateId, owing), eq(outboxEvents.eventType, 'fee.payment.overdue')),
+      );
+    expect(event).toBeTruthy();
+    expect((event!.payload as { recipients: Array<{ phone?: string }> }).recipients[0]!.phone).toBe(
+      '555-0777',
+    );
   });
 });
