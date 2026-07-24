@@ -8,6 +8,7 @@ export const EVENT_TYPES = {
   STUDENT_ADMITTED: 'student.admitted',
   STUDENT_PROMOTED: 'student.promoted',
   STUDENT_TRANSFERRED: 'student.transferred',
+  STAFF_ACCOUNT_CREATED: 'staff.account_created',
   ATTENDANCE_ABSENT: 'attendance.absent',
   ATTENDANCE_MARKED: 'attendance.marked',
   FEE_PAYMENT_RECEIVED: 'fee.payment.received',

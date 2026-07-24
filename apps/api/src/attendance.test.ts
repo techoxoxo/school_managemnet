@@ -396,3 +396,125 @@ describe('staff attendance: manual marking + self check-in (P1-MOD-27)', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe('staff user account + role assignment (P1-MOD-19)', () => {
+  const NEW_EMAIL = `newstaff-${suffix}@test.dev`;
+  let staffId: string;
+
+  afterAll(async () => {
+    await adminDb.execute(sql`DELETE FROM users WHERE email = ${NEW_EMAIL}`);
+  });
+
+  const makeStaff = async (employeeId: string) =>
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/staff',
+        headers: auth(adminToken),
+        payload: { branchId, employeeId, firstName: 'Waylon' },
+      })
+    ).json().data.id as string;
+
+  it('admin creates an account: user + link + role + event', async () => {
+    staffId = await makeStaff(`ACCT-${suffix}`);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/${staffId}/account`,
+      headers: auth(adminToken),
+      payload: { email: NEW_EMAIL, role: 'teacher' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data).toMatchObject({ email: NEW_EMAIL, role: 'teacher', isNewUser: true });
+
+    const userId = res.json().data.userId;
+    const [linkedStaff] = await adminDb
+      .select()
+      .from(staffMembers)
+      .where(eq(staffMembers.id, staffId));
+    expect(linkedStaff!.userId).toBe(userId);
+
+    const roles = await adminDb
+      .select()
+      .from(userTenantRoles)
+      .where(and(eq(userTenantRoles.userId, userId), eq(userTenantRoles.tenantId, tenantId)));
+    expect(roles.map((r) => r.role)).toContain('teacher');
+
+    const [created] = await adminDb.select().from(users).where(eq(users.email, NEW_EMAIL));
+    expect(created!.passwordHash).toBeNull(); // set later via reset/invite
+
+    const [event] = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, staffId),
+          eq(outboxEvents.eventType, 'staff.account_created'),
+        ),
+      );
+    expect(event).toBeTruthy();
+  });
+
+  it('rejects super_admin as an assignable role (400)', async () => {
+    const s = await makeStaff(`SUP-${suffix}`);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/${s}/account`,
+      headers: auth(adminToken),
+      payload: { email: `sup-${suffix}@test.dev`, role: 'super_admin' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('teacher (no user.manage) cannot create an account → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/${staffId}/account`,
+      headers: auth(teacherToken),
+      payload: { email: `x-${suffix}@test.dev`, role: 'teacher' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('creating a second account for the same staff → 409', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/${staffId}/account`,
+      headers: auth(adminToken),
+      payload: { email: `dup-${suffix}@test.dev`, role: 'teacher' },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('assigns an additional role and lists both, then removes one', async () => {
+    const add = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/${staffId}/roles`,
+      headers: auth(adminToken),
+      payload: { role: 'accountant' },
+    });
+    expect(add.statusCode).toBe(201);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/v1/staff/${staffId}/roles`,
+      headers: auth(adminToken),
+    });
+    const roles = list.json().data as Array<{ id: string; role: string }>;
+    expect(roles.map((r) => r.role).sort()).toEqual(['accountant', 'teacher']);
+
+    const accountantRoleId = roles.find((r) => r.role === 'accountant')!.id;
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/v1/staff/${staffId}/roles/${accountantRoleId}`,
+      headers: auth(adminToken),
+    });
+    expect(del.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/staff/${staffId}/roles`,
+      headers: auth(adminToken),
+    });
+    expect((after.json().data as unknown[]).length).toBe(1);
+  });
+});
