@@ -6,7 +6,16 @@
 export interface NavItem {
   label: string;
   href: string;
-  icon: 'dashboard' | 'branches' | 'students' | 'staff' | 'attendance' | 'import' | 'settings';
+  icon:
+    | 'dashboard'
+    | 'branches'
+    | 'students'
+    | 'staff'
+    | 'attendance'
+    | 'import'
+    | 'fees'
+    | 'exams'
+    | 'settings';
   permission: string | null; // null = any authenticated user
 }
 
@@ -16,5 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Students', href: '/students', icon: 'students', permission: 'student.view' },
   { label: 'Staff', href: '/staff', icon: 'staff', permission: 'staff.view' },
   { label: 'Attendance', href: '/attendance', icon: 'attendance', permission: 'attendance.view' },
+  { label: 'Fees', href: '/fees', icon: 'fees', permission: 'fee.view' },
+  { label: 'Marks', href: '/marks', icon: 'exams', permission: 'exam.view' },
   { label: 'Import', href: '/import', icon: 'import', permission: 'student.manage' },
 ];

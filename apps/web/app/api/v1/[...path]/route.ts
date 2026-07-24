@@ -26,6 +26,19 @@ async function forward(request: NextRequest, path: string[]) {
     ...(hasBody ? { body: await request.text() } : {}),
     cache: 'no-store',
   });
+
+  // Pass binary responses (PDF receipts, report cards…) through untouched;
+  // `.text()` + a forced JSON content-type would corrupt them.
+  const contentType = apiRes.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    const headers: Record<string, string> = {
+      'content-type': contentType || 'application/octet-stream',
+    };
+    const disposition = apiRes.headers.get('content-disposition');
+    if (disposition) headers['content-disposition'] = disposition;
+    return new NextResponse(await apiRes.arrayBuffer(), { status: apiRes.status, headers });
+  }
+
   return new NextResponse(await apiRes.text(), {
     status: apiRes.status,
     headers: { 'content-type': 'application/json' },

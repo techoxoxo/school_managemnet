@@ -7,6 +7,8 @@ import {
   Users,
   GraduationCap,
   Upload,
+  Receipt,
+  ClipboardList,
   LogOut,
   Menu,
   X,
@@ -26,6 +28,8 @@ const ICONS: Record<NavItem['icon'], typeof LayoutDashboard> = {
   staff: Users,
   attendance: CalendarCheck,
   import: Upload,
+  fees: Receipt,
+  exams: ClipboardList,
   settings: Building2,
 };
 
