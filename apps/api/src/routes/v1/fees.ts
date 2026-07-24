@@ -7,14 +7,17 @@
 import {
   academicSessions,
   emitEvent,
+  feeDiscounts,
   feeDues,
   feePayments,
   feeStructureItems,
   feeStructures,
+  parentStudent,
   students,
 } from '@schoolmate/db';
-import { EVENT_TYPES, dueStatus, outstanding } from '@schoolmate/shared';
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { AppError, ErrorCodes, EVENT_TYPES, dueStatus, outstanding } from '@schoolmate/shared';
+import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
+import type { TenantDb } from '@schoolmate/db';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -412,6 +415,231 @@ export async function feeRoutes(app: FastifyInstance) {
         };
       });
       return reply.status(201).send({ success: true as const, data: result });
+    },
+  );
+
+  // ── Discounts & concessions (P2-MOD-05) ─────────────────────
+  const discountType = z.enum(['sibling', 'merit', 'staff_ward', 'scholarship', 'custom']);
+  const valueType = z.enum(['flat', 'percent']);
+
+  /** Apply a concession across a student's dues (percent per-due, flat FIFO). */
+  async function applyConcessionToDues(
+    db: TenantDb,
+    studentId: string,
+    vType: 'flat' | 'percent',
+    value: number,
+  ): Promise<number> {
+    const dues = await db
+      .select()
+      .from(feeDues)
+      .where(eq(feeDues.studentId, studentId))
+      .orderBy(asc(feeDues.dueDate));
+    let applied = 0;
+    let remaining = value; // only used for flat
+    for (const d of dues) {
+      const room = d.amountDue - d.amountPaid - d.discountAmount; // still discountable
+      if (room <= 0) continue;
+      let add: number;
+      if (vType === 'percent') {
+        add = Math.min(Math.round((d.amountDue * value) / 10000), room);
+      } else {
+        if (remaining <= 0) break;
+        add = Math.min(room, remaining);
+        remaining -= add;
+      }
+      if (add <= 0) continue;
+      const nextDiscount = d.discountAmount + add;
+      await db
+        .update(feeDues)
+        .set({
+          discountAmount: nextDiscount,
+          status: dueStatus(d.amountDue, d.amountPaid, nextDiscount),
+          updatedAt: new Date(),
+        })
+        .where(eq(feeDues.id, d.id));
+      applied += add;
+    }
+    return applied;
+  }
+
+  r.post(
+    '/students/:id/discounts',
+    {
+      config: manage,
+      schema: {
+        tags: ['fees'],
+        params: idParamSchema,
+        body: z.object({
+          discountType,
+          valueType,
+          value: z.number().int().min(1),
+          reason: z.string().max(300).optional(),
+          autoApprove: z.boolean().optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { discountType: dType, valueType: vType, value, reason, autoApprove } = request.body;
+      const result = await request.tenantDb(async (db) => {
+        const [student] = await db
+          .select({ id: students.id })
+          .from(students)
+          .where(eq(students.id, request.params.id))
+          .limit(1);
+        assertFound(student, 'Student');
+        const status = autoApprove ? 'approved' : 'pending';
+        const [row] = await db
+          .insert(feeDiscounts)
+          .values({
+            tenantId: request.tenant!.id,
+            studentId: request.params.id,
+            discountType: dType,
+            valueType: vType,
+            value,
+            reason: reason ?? null,
+            status,
+            approvedBy: autoApprove ? request.auth!.userId : null,
+          })
+          .returning();
+        let applied = 0;
+        if (status === 'approved') {
+          applied = await applyConcessionToDues(db, request.params.id, vType, value);
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'fee_discount',
+          entityId: row!.id,
+          newValues: { discountType: dType, valueType: vType, value, status, applied },
+        });
+        return { discount: row!, applied };
+      });
+      return reply.status(201).send({ success: true as const, data: result });
+    },
+  );
+
+  r.get(
+    '/students/:id/discounts',
+    { config: view, schema: { tags: ['fees'], params: idParamSchema } },
+    async (request) => {
+      const rows = await request.tenantDb((db) =>
+        db.select().from(feeDiscounts).where(eq(feeDiscounts.studentId, request.params.id)),
+      );
+      return { success: true as const, data: rows };
+    },
+  );
+
+  r.post(
+    '/students/:id/discounts/:discountId/approve',
+    {
+      config: manage,
+      schema: {
+        tags: ['fees'],
+        params: z.object({ id: z.string().uuid(), discountId: z.string().uuid() }),
+        body: z.object({ status: z.enum(['approved', 'rejected']) }),
+      },
+    },
+    async (request) => {
+      const result = await request.tenantDb(async (db) => {
+        const [before] = await db
+          .select()
+          .from(feeDiscounts)
+          .where(
+            and(
+              eq(feeDiscounts.id, request.params.discountId),
+              eq(feeDiscounts.studentId, request.params.id),
+            ),
+          )
+          .limit(1);
+        assertFound(before, 'Discount');
+        if (before.status === 'approved') {
+          throw new AppError(ErrorCodes.CONFLICT, 'Discount already approved', 409);
+        }
+        const [row] = await db
+          .update(feeDiscounts)
+          .set({ status: request.body.status, approvedBy: request.auth!.userId })
+          .where(eq(feeDiscounts.id, request.params.discountId))
+          .returning();
+        let applied = 0;
+        if (request.body.status === 'approved') {
+          applied = await applyConcessionToDues(
+            db,
+            request.params.id,
+            before.valueType as 'flat' | 'percent',
+            before.value,
+          );
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'update',
+          entityType: 'fee_discount',
+          entityId: request.params.discountId,
+          oldValues: { status: before.status },
+          newValues: { status: row!.status, applied },
+        });
+        return { discount: row!, applied };
+      });
+      return { success: true as const, data: result };
+    },
+  );
+
+  // Sibling auto-apply: if the student shares a parent with another active
+  // student, grant + apply a sibling concession (default 10%).
+  r.post(
+    '/students/:id/discounts/apply-sibling',
+    {
+      config: manage,
+      schema: {
+        tags: ['fees'],
+        params: idParamSchema,
+        body: z.object({
+          valueType: valueType.optional(),
+          value: z.number().int().min(1).optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const vType = request.body.valueType ?? 'percent';
+      const value = request.body.value ?? 1000; // 10%
+      const result = await request.tenantDb(async (db) => {
+        const parentLinks = await db
+          .select({ parentId: parentStudent.parentId })
+          .from(parentStudent)
+          .where(eq(parentStudent.studentId, request.params.id));
+        if (parentLinks.length === 0) return { applied: false as const, reason: 'no parents' };
+        const parentIds = parentLinks.map((p) => p.parentId);
+        const siblingLinks = await db
+          .select({ studentId: parentStudent.studentId })
+          .from(parentStudent)
+          .where(
+            and(
+              inArray(parentStudent.parentId, parentIds),
+              ne(parentStudent.studentId, request.params.id),
+            ),
+          );
+        if (siblingLinks.length === 0) return { applied: false as const, reason: 'no siblings' };
+
+        const [row] = await db
+          .insert(feeDiscounts)
+          .values({
+            tenantId: request.tenant!.id,
+            studentId: request.params.id,
+            discountType: 'sibling',
+            valueType: vType,
+            value,
+            reason: 'Sibling concession (auto)',
+            status: 'approved',
+            approvedBy: request.auth!.userId,
+          })
+          .returning();
+        const appliedAmount = await applyConcessionToDues(db, request.params.id, vType, value);
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'fee_discount',
+          entityId: row!.id,
+          newValues: { discountType: 'sibling', valueType: vType, value, applied: appliedAmount },
+        });
+        return { applied: true as const, discountId: row!.id, appliedAmount };
+      });
+      return { success: true as const, data: result };
     },
   );
 }

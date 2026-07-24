@@ -241,3 +241,146 @@ describe('fee collection desk (P2-MOD-06)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('discounts & concessions (P2-MOD-05)', () => {
+  let dStudent: string;
+
+  it('an approved percent discount reduces the outstanding total', async () => {
+    // Fresh student in the class, then allocate this structure to them.
+    dStudent = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `FD-${suffix}`,
+          firstName: 'Discounted',
+          currentClassId: classId,
+          admissionDate: '2026-04-01',
+        },
+      })
+    ).json().data.id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+
+    const before = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${dStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(before.json().data.totalOutstanding).toBe(17000); // 12×1000 + 5000
+
+    // 10% auto-approved discount.
+    const disc = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${dStudent}/discounts`,
+      headers: auth(adminToken),
+      payload: { discountType: 'merit', valueType: 'percent', value: 1000, autoApprove: true },
+    });
+    expect(disc.statusCode).toBe(201);
+    expect(disc.json().data.applied).toBe(1700); // 10% of 17000
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${dStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(15300);
+  });
+
+  it('a pending discount applies only on approval', async () => {
+    const disc = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${dStudent}/discounts`,
+      headers: auth(adminToken),
+      payload: { discountType: 'custom', valueType: 'flat', value: 300 },
+    });
+    expect(disc.json().data.applied).toBe(0); // pending → not applied yet
+    const discountId = disc.json().data.discount.id;
+
+    const approve = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${dStudent}/discounts/${discountId}/approve`,
+      headers: auth(adminToken),
+      payload: { status: 'approved' },
+    });
+    expect(approve.json().data.applied).toBe(300);
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${dStudent}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(15000); // 15300 - 300
+  });
+
+  it('sibling auto-apply grants a concession when a sibling shares a parent', async () => {
+    // Link a parent to the discounted student and to a new sibling.
+    const parentId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/parents',
+        headers: auth(adminToken),
+        payload: { firstName: 'Shared', phone: '555-0999' },
+      })
+    ).json().data.id;
+    const sibling = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `FS-${suffix}`,
+          firstName: 'Sib',
+          currentClassId: classId,
+        },
+      })
+    ).json().data.id;
+    for (const sid of [dStudent, sibling]) {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/students/${sid}/parents`,
+        headers: auth(adminToken),
+        payload: { parentId },
+      });
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${dStudent}/discounts/apply-sibling`,
+      headers: auth(adminToken),
+      payload: { valueType: 'percent', value: 500 }, // 5%
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.applied).toBe(true);
+    expect(res.json().data.appliedAmount).toBeGreaterThan(0);
+  });
+
+  it('sibling auto-apply is a no-op for an only child', async () => {
+    const lone = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `FL-${suffix}`,
+          firstName: 'Lonely',
+          currentClassId: classId,
+        },
+      })
+    ).json().data.id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${lone}/discounts/apply-sibling`,
+      headers: auth(adminToken),
+      payload: {},
+    });
+    expect(res.json().data.applied).toBe(false);
+  });
+});
