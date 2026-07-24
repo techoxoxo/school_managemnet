@@ -3,11 +3,14 @@ import {
   emitEvent,
   parents,
   parentStudent,
+  sections,
+  staffMembers,
   studentAttendance,
   students,
+  type TenantDb,
 } from '@schoolmate/db';
 import { AppError, ErrorCodes, EVENT_TYPES } from '@schoolmate/shared';
-import { and, between, count, eq, inArray } from 'drizzle-orm';
+import { and, between, count, countDistinct, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -398,6 +401,150 @@ export async function attendanceRoutes(app: FastifyInstance) {
         success: true as const,
         data: { studentId: id, from, to, counts, workingDays: working, percentage },
       };
+    },
+  );
+
+  // ── Unmarked-class detection + teacher reminder (P1-MOD-26) ─
+  /**
+   * Active sections with enrolled students whose attendance for `date` is
+   * missing or incomplete (marked distinct students < enrolled).
+   */
+  async function detectUnmarked(db: TenantDb, branchId: string | undefined, date: string) {
+    const sectionRows = await db
+      .select({
+        id: sections.id,
+        name: sections.name,
+        classId: sections.classId,
+        classTeacherId: sections.classTeacherId,
+      })
+      .from(sections)
+      .where(
+        and(eq(sections.isActive, true), branchId ? eq(sections.branchId, branchId) : undefined),
+      );
+    if (sectionRows.length === 0) return [];
+
+    const enrolledRows = await db
+      .select({ sectionId: students.currentSectionId, n: count() })
+      .from(students)
+      .where(
+        and(eq(students.status, 'active'), branchId ? eq(students.branchId, branchId) : undefined),
+      )
+      .groupBy(students.currentSectionId);
+    const enrolled = new Map(
+      enrolledRows.map((r: { sectionId: string | null; n: number }) => [r.sectionId, r.n]),
+    );
+
+    const markedRows = await db
+      .select({
+        sectionId: studentAttendance.sectionId,
+        n: countDistinct(studentAttendance.studentId),
+      })
+      .from(studentAttendance)
+      .where(
+        and(
+          eq(studentAttendance.date, date),
+          branchId ? eq(studentAttendance.branchId, branchId) : undefined,
+        ),
+      )
+      .groupBy(studentAttendance.sectionId);
+    const marked = new Map(
+      markedRows.map((r: { sectionId: string | null; n: number }) => [r.sectionId, r.n]),
+    );
+
+    return sectionRows
+      .map((s: { id: string; name: string; classId: string; classTeacherId: string | null }) => {
+        const enrolledCount = enrolled.get(s.id) ?? 0;
+        const markedCount = marked.get(s.id) ?? 0;
+        return {
+          sectionId: s.id,
+          name: s.name,
+          classId: s.classId,
+          classTeacherId: s.classTeacherId,
+          enrolled: enrolledCount,
+          marked: markedCount,
+          status: markedCount === 0 ? ('unmarked' as const) : ('partial' as const),
+        };
+      })
+      .filter((s) => s.enrolled > 0 && s.marked < s.enrolled);
+  }
+
+  r.get(
+    '/attendance/unmarked',
+    {
+      config: { permission: 'attendance.view' },
+      schema: {
+        tags: ['attendance'],
+        querystring: z.object({
+          date: z.string().date(),
+          branchId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const rows = await request.tenantDb((db) =>
+        detectUnmarked(db, request.query.branchId, request.query.date),
+      );
+      return { success: true as const, data: rows };
+    },
+  );
+
+  r.post(
+    '/attendance/remind-unmarked',
+    {
+      config: { permission: 'attendance.manage' },
+      schema: {
+        tags: ['attendance'],
+        body: z.object({
+          date: z.string().date(),
+          branchId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const { date, branchId } = request.body;
+      const result = await request.tenantDb(async (db) => {
+        const unmarked = await detectUnmarked(db, branchId, date);
+        const teacherIds = [
+          ...new Set(unmarked.map((s) => s.classTeacherId).filter((id): id is string => !!id)),
+        ];
+        // Map class-teacher staff → their login user id.
+        const teacherUsers =
+          teacherIds.length > 0
+            ? await db
+                .select({ staffId: staffMembers.id, userId: staffMembers.userId })
+                .from(staffMembers)
+                .where(inArray(staffMembers.id, teacherIds))
+            : [];
+        const userByStaff = new Map(
+          teacherUsers.map((t: { staffId: string; userId: string | null }) => [
+            t.staffId,
+            t.userId,
+          ]),
+        );
+
+        let reminded = 0;
+        for (const s of unmarked) {
+          const userId = s.classTeacherId ? userByStaff.get(s.classTeacherId) : null;
+          if (!userId) continue; // no class teacher / no linked account → skip
+          await emitEvent(db, {
+            tenantId: request.tenant!.id,
+            type: EVENT_TYPES.ATTENDANCE_UNMARKED_REMINDER,
+            aggregateType: 'section',
+            aggregateId: s.sectionId,
+            payload: {
+              sectionId: s.sectionId,
+              sectionName: s.name,
+              date,
+              enrolled: s.enrolled,
+              marked: s.marked,
+              recipients: [{ userId }],
+            },
+          });
+          reminded += 1;
+        }
+        return { unmarked: unmarked.length, reminded };
+      });
+      return { success: true as const, data: result };
     },
   );
 

@@ -166,7 +166,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | P1-MOD-23 | Mark attendance UI: whole-class single screen, keyboard-fast, defaults to present | P1-MOD-22  | ✅     | Teacher's daily tool — UX matters most here — bulk mark (upsert/idempotent), source tracking, marked_by   |
 | P1-MOD-24 | Period-wise attendance mode                                                       | P1-MOD-23  | ✅     | mark-periods (periodWise jsonb, dup-period 400, day-status rollup, upsert) + period register              |
 | P1-MOD-25 | Attendance reports: daily register, monthly summary, student %                    | P1-MOD-23  | ✅     | daily register + student % report (present+late+½·half_day)                                               |
-| P1-MOD-26 | Unmarked-class detection + teacher reminder                                       | P1-MOD-23  | ⬜     |                                                                                                           |
+| P1-MOD-26 | Unmarked-class detection + teacher reminder                                       | P1-MOD-23  | ✅     | /attendance/unmarked (unmarked/partial per section vs enrolled) + /remind-unmarked → class-teacher event  |
 | P1-MOD-27 | Staff attendance: manual marking + self check-in                                  | P1-MOD-18  | ✅     | admin bulk-mark (upsert/idempotent) + self check-in/out (own record via userId) + daily register + report |
 
 ## 1.5 Events, Notifications & Dashboards (v1)

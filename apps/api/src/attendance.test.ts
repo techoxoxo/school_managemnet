@@ -597,3 +597,158 @@ describe('staff user account + role assignment (P1-MOD-19)', () => {
     expect((after.json().data as unknown[]).length).toBe(1);
   });
 });
+
+describe('unmarked-class detection + teacher reminder (P1-MOD-26)', () => {
+  let classId: string;
+  let sectionId: string;
+  let teacherStaffId: string;
+  let teacherUserId: string;
+  const s: string[] = [];
+
+  const enroll = async (firstName: string) =>
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(adminToken),
+        payload: {
+          branchId,
+          admissionNumber: `U-${Math.random().toString(36).slice(2, 8)}`,
+          firstName,
+          currentClassId: classId,
+          currentSectionId: sectionId,
+        },
+      })
+    ).json().data.id as string;
+
+  beforeAll(async () => {
+    classId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/classes',
+        headers: auth(adminToken),
+        payload: { branchId, name: 'Grade 9', classType: 'secondary' },
+      })
+    ).json().data.id;
+
+    teacherStaffId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/staff',
+        headers: auth(adminToken),
+        payload: { branchId, employeeId: `CT-${suffix}`, firstName: 'Elizabeth' },
+      })
+    ).json().data.id;
+    teacherUserId = (
+      await app.inject({
+        method: 'POST',
+        url: `/v1/staff/${teacherStaffId}/account`,
+        headers: auth(adminToken),
+        payload: { email: `classteacher-${suffix}@test.dev`, role: 'teacher' },
+      })
+    ).json().data.userId;
+
+    sectionId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: auth(adminToken),
+        payload: { branchId, classId, name: 'A', classTeacherId: teacherStaffId },
+      })
+    ).json().data.id;
+
+    s.push(await enroll('Ann'), await enroll('Bob'));
+  });
+
+  afterAll(async () => {
+    await adminDb.execute(
+      sql`DELETE FROM users WHERE email = ${`classteacher-${suffix}@test.dev`}`,
+    );
+  });
+
+  const unmarkedFor = async (date: string) => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/attendance/unmarked?date=${date}&branchId=${branchId}`,
+      headers: auth(teacherToken),
+    });
+    return (
+      res.json().data as Array<{
+        sectionId: string;
+        status: string;
+        enrolled: number;
+        marked: number;
+      }>
+    ).find((x) => x.sectionId === sectionId);
+  };
+
+  it('flags a fully-unmarked section', async () => {
+    const row = await unmarkedFor('2026-12-01');
+    expect(row).toMatchObject({ enrolled: 2, marked: 0, status: 'unmarked' });
+  });
+
+  it('shows partial when some but not all are marked', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/mark',
+      headers: auth(teacherToken),
+      payload: {
+        branchId,
+        sectionId,
+        date: '2026-12-01',
+        entries: [{ studentId: s[0], status: 'present' }],
+      },
+    });
+    const row = await unmarkedFor('2026-12-01');
+    expect(row).toMatchObject({ enrolled: 2, marked: 1, status: 'partial' });
+  });
+
+  it('drops the section once everyone is marked', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/mark',
+      headers: auth(teacherToken),
+      payload: {
+        branchId,
+        sectionId,
+        date: '2026-12-01',
+        entries: [{ studentId: s[1], status: 'present' }],
+      },
+    });
+    expect(await unmarkedFor('2026-12-01')).toBeUndefined();
+  });
+
+  it('reminds the class teacher for an unmarked day (emits event)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/remind-unmarked',
+      headers: auth(adminToken),
+      payload: { date: '2026-12-02', branchId },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.reminded).toBeGreaterThanOrEqual(1);
+
+    const events = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, sectionId),
+          eq(outboxEvents.eventType, 'attendance.unmarked_reminder'),
+        ),
+      );
+    expect(events.length).toBe(1);
+    const payload = events[0]!.payload as { recipients: Array<{ userId: string }> };
+    expect(payload.recipients[0]!.userId).toBe(teacherUserId);
+  });
+
+  it('teacher (no attendance.manage) cannot trigger reminders → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/remind-unmarked',
+      headers: auth(teacherToken),
+      payload: { date: '2026-12-03', branchId },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});

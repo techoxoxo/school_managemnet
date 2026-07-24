@@ -11,6 +11,7 @@ export const EVENT_TYPES = {
   STAFF_ACCOUNT_CREATED: 'staff.account_created',
   ATTENDANCE_ABSENT: 'attendance.absent',
   ATTENDANCE_MARKED: 'attendance.marked',
+  ATTENDANCE_UNMARKED_REMINDER: 'attendance.unmarked_reminder',
   FEE_PAYMENT_RECEIVED: 'fee.payment.received',
   FEE_PAYMENT_OVERDUE: 'fee.payment.overdue',
   EXAM_RESULTS_PUBLISHED: 'exam.results.published',
