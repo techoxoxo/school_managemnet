@@ -78,6 +78,18 @@ export const parentRelationEnum = pgEnum('parent_relation', [
   'other',
 ]);
 
+export const admissionStatusEnum = pgEnum('admission_status', [
+  'applied',
+  'under_review',
+  'shortlisted',
+  'interview',
+  'offered',
+  'accepted',
+  'rejected',
+  'withdrawn',
+  'enrolled',
+]);
+
 export const notificationChannelEnum = pgEnum('notification_channel', [
   'in_app',
   'email',

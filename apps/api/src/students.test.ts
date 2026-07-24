@@ -255,3 +255,113 @@ describe('parent linking + sibling detection (P1-MOD-13/15)', () => {
     expect(res.json().data).toEqual([]);
   });
 });
+
+describe('admission pipeline (P1-MOD-12)', () => {
+  let admissionId: string;
+
+  const createApp = async (appNo: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/v1/admissions',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        applicationNumber: appNo,
+        applicantFirstName: 'Bart',
+        applicantLastName: 'Simpson',
+        guardianName: 'Homer',
+        guardianPhone: '555-0100',
+      },
+    });
+
+  const setStatus = (id: string, status: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/v1/admissions/${id}/status`,
+      headers: auth(adminToken),
+      payload: { status },
+    });
+
+  it('creates an application (defaults to applied) + audit', async () => {
+    const res = await createApp(`APP-${suffix}`);
+    expect(res.statusCode).toBe(201);
+    admissionId = res.json().data.id;
+    expect(res.json().data.status).toBe('applied');
+
+    const [audit] = (
+      await adminDb.execute(
+        sql`SELECT action, entity_type FROM audit_logs WHERE entity_id = ${admissionId}`,
+      )
+    ).rows as Array<{ action: string; entity_type: string }>;
+    expect(audit).toMatchObject({ action: 'create', entity_type: 'admission' });
+  });
+
+  it('enforces unique application number → 409', async () => {
+    const dup = await createApp(`APP-${suffix}`);
+    expect(dup.statusCode).toBe(409);
+  });
+
+  it('viewer (student.view only) cannot create → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/admissions',
+      headers: auth(viewerToken),
+      payload: { branchId, applicationNumber: `V-${suffix}`, applicantFirstName: 'No' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('rejects an illegal status jump (applied → accepted) → 409', async () => {
+    const bad = await setStatus(admissionId, 'accepted');
+    expect(bad.statusCode).toBe(409);
+  });
+
+  it('walks the pipeline applied → under_review → shortlisted → offered → accepted', async () => {
+    for (const s of ['under_review', 'shortlisted', 'offered', 'accepted']) {
+      const res = await setStatus(admissionId, s);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.status).toBe(s);
+    }
+  });
+
+  it('converts an accepted application into a student (emits student.admitted)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/admissions/${admissionId}/convert`,
+      headers: auth(adminToken),
+      payload: { admissionNumber: `ADM-${suffix}` },
+    });
+    expect(res.statusCode).toBe(201);
+    const { admission, student } = res.json().data;
+    expect(admission.status).toBe('enrolled');
+    expect(admission.convertedStudentId).toBe(student.id);
+    expect(student.firstName).toBe('Bart');
+
+    const [row] = await adminDb
+      .select()
+      .from(studentsTable)
+      .where(eq(studentsTable.id, student.id));
+    expect(row!.admissionNumber).toBe(`ADM-${suffix}`);
+
+    const [event] = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, student.id),
+          eq(outboxEvents.eventType, 'student.admitted'),
+        ),
+      );
+    expect(event).toBeTruthy();
+  });
+
+  it('refuses to convert twice → 409', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/admissions/${admissionId}/convert`,
+      headers: auth(adminToken),
+      payload: { admissionNumber: `ADM2-${suffix}` },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+});

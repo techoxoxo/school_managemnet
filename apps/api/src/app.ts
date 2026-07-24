@@ -18,6 +18,7 @@ import { tenantPlugin } from './plugins/tenant.js';
 import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { academicSessionRoutes } from './routes/v1/academic-sessions.js';
+import { admissionRoutes } from './routes/v1/admissions.js';
 import { branchRoutes } from './routes/v1/branches.js';
 import { attendanceRoutes } from './routes/v1/attendance.js';
 import { classRoutes } from './routes/v1/classes.js';
@@ -89,6 +90,7 @@ export async function buildApp() {
   await app.register(subjectRoutes, { prefix: '/v1' });
   await app.register(curriculumRoutes, { prefix: '/v1' });
   await app.register(studentRoutes, { prefix: '/v1' });
+  await app.register(admissionRoutes, { prefix: '/v1' });
   await app.register(parentRoutes, { prefix: '/v1' });
   await app.register(staffRoutes, { prefix: '/v1' });
   await app.register(staffAttendanceRoutes, { prefix: '/v1' });

@@ -9,9 +9,9 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { genderEnum, parentRelationEnum, studentStatusEnum } from './enums.js';
+import { admissionStatusEnum, genderEnum, parentRelationEnum, studentStatusEnum } from './enums.js';
+import { academicSessions, branches, tenants } from './tenants.js';
 import { classes, sections } from './academics.js';
-import { branches, tenants } from './tenants.js';
 import { users } from './users.js';
 
 /** Tenant-scoped (RLS). Students (Plan §4.C). */
@@ -54,6 +54,48 @@ export const students = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('students_admission_number_unique').on(t.tenantId, t.admissionNumber)],
+);
+
+/**
+ * Tenant-scoped (RLS). Admission applications (Plan §4.C, P1-MOD-12).
+ * A pipeline that ends by converting an accepted application into a student.
+ */
+export const admissions = pgTable(
+  'admissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    branchId: uuid('branch_id')
+      .notNull()
+      .references(() => branches.id, { onDelete: 'cascade' }),
+    applicationNumber: text('application_number').notNull(),
+    applicantFirstName: text('applicant_first_name').notNull(),
+    applicantLastName: text('applicant_last_name'),
+    dateOfBirth: date('date_of_birth'),
+    gender: genderEnum('gender'),
+    classAppliedFor: uuid('class_applied_for').references(() => classes.id, {
+      onDelete: 'set null',
+    }),
+    academicSessionId: uuid('academic_session_id').references(() => academicSessions.id, {
+      onDelete: 'set null',
+    }),
+    guardianName: text('guardian_name'),
+    guardianPhone: text('guardian_phone'),
+    guardianEmail: text('guardian_email'),
+    previousSchoolName: text('previous_school_name'),
+    status: admissionStatusEnum('status').notNull().default('applied'),
+    statusReason: text('status_reason'),
+    notes: text('notes'),
+    /** Set when the application is converted (status → enrolled). */
+    convertedStudentId: uuid('converted_student_id').references(() => students.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('admissions_application_number_unique').on(t.tenantId, t.applicationNumber)],
 );
 
 /** Tenant-scoped (RLS). Parents/guardians (Plan §4.D). */
