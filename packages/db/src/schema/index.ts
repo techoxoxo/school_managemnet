@@ -6,5 +6,6 @@ export * from './academics.js';
 export * from './imports.js';
 export * from './people.js';
 export * from './messaging.js';
+export * from './fees.js';
 export * from './staff.js';
 export * from './attendance.js';

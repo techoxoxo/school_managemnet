@@ -189,19 +189,19 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 2.1 Fee Management
 
-| ID        | Task                                                                                                           | Depends on           | Status | Notes                          |
-| --------- | -------------------------------------------------------------------------------------------------------------- | -------------------- | ------ | ------------------------------ |
-| P2-MOD-01 | Fee schema (§4.I): structures, allocations, discounts, payments, reminders, custom plans                       | P0-DB-05             | ⬜     |                                |
-| P2-MOD-02 | Money math package: minor units only, allocation, proration, late-fee rules — near-100% unit coverage          | P2-MOD-01            | ⬜     | Plan §25 risk #3 — audit-grade |
-| P2-MOD-03 | Fee structure builder UI: heads, frequencies, installment plans, late-fee config                               | P2-MOD-02            | ⬜     |                                |
-| P2-MOD-04 | Fee allocation: auto-assign by class, mid-year pro-ration for new admissions                                   | P2-MOD-03            | ⬜     | Plan §9 edge cases             |
-| P2-MOD-05 | Discounts & concessions: sibling auto-apply, merit, staff-ward, approval workflow                              | P2-MOD-04, P1-MOD-15 | ⬜     |                                |
-| P2-MOD-06 | Fee collection desk UI: search student → outstanding view → collect (cash/cheque/UPI ref) → receipt            | P2-MOD-04            | ⬜     | Accountant's daily tool        |
-| P2-MOD-07 | Receipt PDF: numbered sequence per tenant, template, reprint with audit log                                    | P2-MOD-06            | ⬜     |                                |
-| P2-MOD-08 | Payment gateway integration (Razorpay first): order creation, webhook handler (idempotent), reconciliation job | P2-MOD-06            | ⬜     |                                |
-| P2-MOD-09 | Edge cases: partial payment, advance payment, cheque bounce reversal, refund workflow                          | P2-MOD-06            | ⬜     | Plan §9 fee table              |
-| P2-MOD-10 | Defaulter reports + automated reminder scheduling (event-driven via outbox)                                    | P2-MOD-08, P1-API-02 | ⬜     |                                |
-| P2-MOD-11 | Fee reports: daily collection, head-wise, outstanding, collection efficiency                                   | P2-MOD-06            | ⬜     |                                |
+| ID        | Task                                                                                                           | Depends on           | Status | Notes                                                                                                                        |
+| --------- | -------------------------------------------------------------------------------------------------------------- | -------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| P2-MOD-01 | Fee schema (§4.I): structures, allocations, discounts, payments, reminders, custom plans                       | P0-DB-05             | ✅     | fee_structures/items, fee_dues, fee_payments (receipt# unique), fee_discounts; all minor-units bigint; FORCE RLS + leak test |
+| P2-MOD-02 | Money math package: minor units only, allocation, proration, late-fee rules — near-100% unit coverage          | P2-MOD-01            | ⬜     | Plan §25 risk #3 — audit-grade                                                                                               |
+| P2-MOD-03 | Fee structure builder UI: heads, frequencies, installment plans, late-fee config                               | P2-MOD-02            | ⬜     |                                                                                                                              |
+| P2-MOD-04 | Fee allocation: auto-assign by class, mid-year pro-ration for new admissions                                   | P2-MOD-03            | ⬜     | Plan §9 edge cases                                                                                                           |
+| P2-MOD-05 | Discounts & concessions: sibling auto-apply, merit, staff-ward, approval workflow                              | P2-MOD-04, P1-MOD-15 | ⬜     |                                                                                                                              |
+| P2-MOD-06 | Fee collection desk UI: search student → outstanding view → collect (cash/cheque/UPI ref) → receipt            | P2-MOD-04            | ⬜     | Accountant's daily tool                                                                                                      |
+| P2-MOD-07 | Receipt PDF: numbered sequence per tenant, template, reprint with audit log                                    | P2-MOD-06            | ⬜     |                                                                                                                              |
+| P2-MOD-08 | Payment gateway integration (Razorpay first): order creation, webhook handler (idempotent), reconciliation job | P2-MOD-06            | ⬜     |                                                                                                                              |
+| P2-MOD-09 | Edge cases: partial payment, advance payment, cheque bounce reversal, refund workflow                          | P2-MOD-06            | ⬜     | Plan §9 fee table                                                                                                            |
+| P2-MOD-10 | Defaulter reports + automated reminder scheduling (event-driven via outbox)                                    | P2-MOD-08, P1-API-02 | ⬜     |                                                                                                                              |
+| P2-MOD-11 | Fee reports: daily collection, head-wise, outstanding, collection efficiency                                   | P2-MOD-06            | ⬜     |                                                                                                                              |
 
 ## 2.2 Examinations & Results
 

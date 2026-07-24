@@ -161,3 +161,45 @@ export const documentTypeEnum = pgEnum('document_type', [
 ]);
 
 export const documentStatusEnum = pgEnum('document_status', ['pending', 'verified', 'rejected']);
+
+export const feeFrequencyEnum = pgEnum('fee_frequency', [
+  'one_time',
+  'monthly',
+  'quarterly',
+  'half_yearly',
+  'annual',
+]);
+
+export const feeDueStatusEnum = pgEnum('fee_due_status', [
+  'pending',
+  'partial',
+  'paid',
+  'overdue',
+  'waived',
+]);
+
+export const feePaymentMethodEnum = pgEnum('fee_payment_method', [
+  'cash',
+  'cheque',
+  'upi',
+  'card',
+  'net_banking',
+  'bank_transfer',
+  'online',
+]);
+
+export const feePaymentStatusEnum = pgEnum('fee_payment_status', [
+  'completed',
+  'pending',
+  'bounced',
+  'refunded',
+  'cancelled',
+]);
+
+export const feeDiscountTypeEnum = pgEnum('fee_discount_type', [
+  'sibling',
+  'merit',
+  'staff_ward',
+  'scholarship',
+  'custom',
+]);

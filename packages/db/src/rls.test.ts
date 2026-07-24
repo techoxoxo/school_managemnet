@@ -47,6 +47,11 @@ const TENANT_SCOPED_TABLES = [
   'staff_attendance',
   'attendance_settings',
   'student_attendance',
+  'fee_structures',
+  'fee_structure_items',
+  'fee_dues',
+  'fee_payments',
+  'fee_discounts',
 ];
 
 const adminPool = createPool(ADMIN_URL);

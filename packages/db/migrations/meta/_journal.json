@@ -141,6 +141,20 @@
       "when": 1784926196016,
       "tag": "0019_student-documents-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784928547855,
+      "tag": "0020_fees",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784928548355,
+      "tag": "0021_fees-rls",
+      "breakpoints": true
     }
   ]
 }
