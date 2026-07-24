@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { Alert, Card, EmptyState } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -131,7 +132,9 @@ export function StudentSearch({ initial }: { initial: Student[] }) {
                 {rows.map((s) => (
                   <tr key={s.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-medium">
-                      {[s.firstName, s.lastName].filter(Boolean).join(' ')}
+                      <Link href={`/students/${s.id}`} className="text-brand hover:underline">
+                        {[s.firstName, s.lastName].filter(Boolean).join(' ')}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{s.admissionNumber}</td>
                     <td className="px-4 py-3 text-muted-foreground">{s.rollNumber ?? '—'}</td>
