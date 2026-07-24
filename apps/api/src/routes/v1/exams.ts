@@ -2,10 +2,25 @@
  * P2-MOD-13: grading systems. Presets (CBSE/GPA/percentage) + custom scales.
  * Exams/datesheet/marks build on this in later tasks.
  */
-import { examSubjects, examTypes, exams, gradingSystems } from '@schoolmate/db';
-import { AppError, ErrorCodes, GRADING_PRESETS } from '@schoolmate/shared';
-import { and, asc, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import {
+  examResults,
+  examSubjects,
+  examTypes,
+  exams,
+  gradingSystems,
+  staffMembers,
+  students,
+  subjectTeachers,
+} from '@schoolmate/db';
+import {
+  AppError,
+  ErrorCodes,
+  GRADING_PRESETS,
+  gradeForPercentage,
+  type GradingScale,
+} from '@schoolmate/shared';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { writeAudit } from '../../lib/audit.js';
@@ -399,5 +414,229 @@ export async function examRoutes(app: FastifyInstance) {
       });
       return reply.status(201).send({ success: true as const, data: created });
     },
+  );
+
+  // ── Marks entry (P2-MOD-15) + verification (P2-MOD-16) ──────
+  const marks = { permission: 'exam.marks' };
+
+  const gradeFor = (scale: GradingScale, marks: number | null, maxMarks: number): string | null => {
+    if (marks == null || scale.length === 0 || maxMarks <= 0) return null;
+    return gradeForPercentage(scale, (marks / maxMarks) * 100)?.grade ?? null;
+  };
+
+  r.post(
+    '/exam-subjects/:id/marks',
+    {
+      config: marks,
+      schema: {
+        tags: ['exams'],
+        params: idParamSchema,
+        body: z.object({
+          entries: z
+            .array(
+              z.object({
+                studentId: z.string().uuid(),
+                marksObtained: z.number().int().min(0).max(1000).optional(),
+                isAbsent: z.boolean().optional(),
+                isExempt: z.boolean().optional(),
+              }),
+            )
+            .min(1)
+            .max(500),
+        }),
+      },
+    },
+    async (request) => {
+      const result = await request.tenantDb(async (db) => {
+        const [es] = await db
+          .select()
+          .from(examSubjects)
+          .where(eq(examSubjects.id, request.params.id))
+          .limit(1);
+        assertFound(es, 'Exam subject');
+
+        // Teacher ABAC: teachers may only enter marks for subjects they teach.
+        if (request.auth!.role === 'teacher') {
+          const [staff] = await db
+            .select({ id: staffMembers.id })
+            .from(staffMembers)
+            .where(eq(staffMembers.userId, request.auth!.userId))
+            .limit(1);
+          const assigned = staff
+            ? await db
+                .select({ id: subjectTeachers.id })
+                .from(subjectTeachers)
+                .where(
+                  and(
+                    eq(subjectTeachers.staffId, staff.id),
+                    eq(subjectTeachers.subjectId, es.subjectId),
+                  ),
+                )
+                .limit(1)
+            : [];
+          if (assigned.length === 0) {
+            throw new AppError(ErrorCodes.FORBIDDEN, 'You do not teach this subject', 403);
+          }
+        }
+
+        // Locked results are immutable.
+        const ids = request.body.entries.map((e) => e.studentId);
+        const locked = await db
+          .select({ studentId: examResults.studentId })
+          .from(examResults)
+          .where(
+            and(
+              eq(examResults.examSubjectId, es.id),
+              eq(examResults.status, 'locked'),
+              inArray(examResults.studentId, ids),
+            ),
+          );
+        if (locked.length > 0) {
+          throw new AppError(
+            ErrorCodes.CONFLICT,
+            'Some results are locked and cannot be changed',
+            409,
+          );
+        }
+
+        let scale: GradingScale = [];
+        const [exam] = await db.select().from(exams).where(eq(exams.id, es.examId)).limit(1);
+        if (exam?.gradingSystemId) {
+          const [gs] = await db
+            .select()
+            .from(gradingSystems)
+            .where(eq(gradingSystems.id, exam.gradingSystemId))
+            .limit(1);
+          scale = (gs?.scale ?? []) as GradingScale;
+        }
+
+        for (const e of request.body.entries) {
+          const marksObtained = e.isAbsent || e.isExempt ? null : (e.marksObtained ?? null);
+          const grade =
+            e.isAbsent || e.isExempt ? null : gradeFor(scale, marksObtained, es.maxMarks);
+          await db
+            .insert(examResults)
+            .values({
+              tenantId: request.tenant!.id,
+              examId: es.examId,
+              examSubjectId: es.id,
+              studentId: e.studentId,
+              marksObtained,
+              isAbsent: e.isAbsent ?? false,
+              isExempt: e.isExempt ?? false,
+              grade,
+              status: 'entered',
+              enteredBy: request.auth!.userId,
+            })
+            .onConflictDoUpdate({
+              target: [examResults.tenantId, examResults.examSubjectId, examResults.studentId],
+              set: {
+                marksObtained,
+                isAbsent: e.isAbsent ?? false,
+                isExempt: e.isExempt ?? false,
+                grade,
+                status: 'entered',
+                enteredBy: request.auth!.userId,
+                updatedAt: new Date(),
+              },
+            });
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'exam_marks',
+          entityId: es.id,
+          newValues: { count: request.body.entries.length },
+        });
+        return { saved: request.body.entries.length };
+      });
+      return { success: true as const, data: result };
+    },
+  );
+
+  r.get(
+    '/exam-subjects/:id/marks',
+    { config: view, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const data = await request.tenantDb(async (db) => {
+        const [es] = await db
+          .select()
+          .from(examSubjects)
+          .where(eq(examSubjects.id, request.params.id))
+          .limit(1);
+        assertFound(es, 'Exam subject');
+        const [exam] = await db.select().from(exams).where(eq(exams.id, es.examId)).limit(1);
+        const roster = exam?.classId
+          ? await db
+              .select({
+                id: students.id,
+                firstName: students.firstName,
+                lastName: students.lastName,
+                rollNumber: students.rollNumber,
+              })
+              .from(students)
+              .where(and(eq(students.currentClassId, exam.classId), eq(students.status, 'active')))
+              .orderBy(asc(students.rollNumber))
+          : [];
+        const results = await db
+          .select()
+          .from(examResults)
+          .where(eq(examResults.examSubjectId, es.id));
+        const byStudent = new Map(results.map((r2) => [r2.studentId, r2]));
+        return {
+          maxMarks: es.maxMarks,
+          passMarks: es.passMarks,
+          rows: roster.map((s) => {
+            const r2 = byStudent.get(s.id);
+            return {
+              studentId: s.id,
+              name: [s.firstName, s.lastName].filter(Boolean).join(' '),
+              rollNumber: s.rollNumber,
+              marksObtained: r2?.marksObtained ?? null,
+              isAbsent: r2?.isAbsent ?? false,
+              isExempt: r2?.isExempt ?? false,
+              grade: r2?.grade ?? null,
+              status: r2?.status ?? null,
+            };
+          }),
+        };
+      });
+      return { success: true as const, data };
+    },
+  );
+
+  const transition = (from: 'entered' | 'verified', to: 'verified' | 'locked') =>
+    async function (request: FastifyRequest) {
+      const result = await request.tenantDb(async (db) => {
+        const [es] = await db
+          .select({ id: examSubjects.id })
+          .from(examSubjects)
+          .where(eq(examSubjects.id, (request.params as { id: string }).id))
+          .limit(1);
+        assertFound(es, 'Exam subject');
+        const rows = await db
+          .update(examResults)
+          .set({ status: to, verifiedBy: request.auth!.userId, updatedAt: new Date() })
+          .where(and(eq(examResults.examSubjectId, es.id), eq(examResults.status, from)))
+          .returning({ id: examResults.id });
+        await writeAudit(db, request.auth!, {
+          action: 'update',
+          entityType: 'exam_marks',
+          entityId: es.id,
+          newValues: { transition: `${from}→${to}`, count: rows.length },
+        });
+        return { [to]: rows.length } as Record<string, number>;
+      });
+      return { success: true as const, data: result };
+    };
+
+  r.post(
+    '/exam-subjects/:id/verify',
+    { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
+    transition('entered', 'verified'),
+  );
+  r.post(
+    '/exam-subjects/:id/lock',
+    { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
+    transition('verified', 'locked'),
   );
 }

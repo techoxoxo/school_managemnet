@@ -215,3 +215,179 @@ describe('exam scheduling + datesheet (P2-MOD-14)', () => {
     expect(detail.json().data.datesheet).toHaveLength(2);
   });
 });
+
+describe('marks entry + verification (P2-MOD-15/16)', () => {
+  let esId: string;
+  let s1: string;
+  let s2: string;
+  let teacherToken: string;
+
+  beforeAll(async () => {
+    const session = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/academic-sessions',
+        headers: auth(),
+        payload: { branchId, name: 'M-2026', startDate: '2026-04-01', endDate: '2027-03-31' },
+      })
+    ).json().data.id;
+    const klass = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/classes',
+        headers: auth(),
+        payload: { branchId, name: 'Grade 8', classType: 'secondary' },
+      })
+    ).json().data.id;
+    const subject = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/subjects',
+        headers: auth(),
+        payload: { branchId, name: 'English', code: `E-${suffix}` },
+      })
+    ).json().data.id;
+    const grading = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/grading-systems/from-preset',
+        headers: auth(),
+        payload: { branchId, preset: 'cbse' },
+      })
+    ).json().data.id;
+    const exam = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/exams',
+        headers: auth(),
+        payload: {
+          branchId,
+          academicSessionId: session,
+          classId: klass,
+          gradingSystemId: grading,
+          name: 'Marks Exam',
+        },
+      })
+    ).json().data.id;
+    esId = (
+      await app.inject({
+        method: 'POST',
+        url: `/v1/exams/${exam}/subjects`,
+        headers: auth(),
+        payload: { subjectId: subject, examDate: '2026-12-10', maxMarks: 100, passMarks: 33 },
+      })
+    ).json().data.id;
+    s1 = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(),
+        payload: {
+          branchId,
+          admissionNumber: `MK1-${suffix}`,
+          firstName: 'Ann',
+          currentClassId: klass,
+        },
+      })
+    ).json().data.id;
+    s2 = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/students',
+        headers: auth(),
+        payload: {
+          branchId,
+          admissionNumber: `MK2-${suffix}`,
+          firstName: 'Ben',
+          currentClassId: klass,
+        },
+      })
+    ).json().data.id;
+
+    // A teacher NOT assigned to this subject (for the ABAC deny test).
+    const passwordHash = await bcrypt.hash(PASSWORD, 10);
+    const [tu] = await adminDb
+      .insert(users)
+      .values({ email: `examteacher-${suffix}@test.dev`, passwordHash, status: 'active' })
+      .returning();
+    await adminDb
+      .insert(userTenantRoles)
+      .values({ userId: tu!.id, tenantId, role: 'teacher', isPrimaryRole: true });
+    teacherToken = (
+      await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        headers: { 'x-tenant-slug': SLUG },
+        payload: { email: `examteacher-${suffix}@test.dev`, password: PASSWORD },
+      })
+    ).json().data.accessToken;
+  });
+
+  it('enters marks (with absent) and computes grades', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/exam-subjects/${esId}/marks`,
+      headers: auth(),
+      payload: {
+        entries: [
+          { studentId: s1, marksObtained: 85 },
+          { studentId: s2, isAbsent: true },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.saved).toBe(2);
+
+    const grid = await app.inject({
+      method: 'GET',
+      url: `/v1/exam-subjects/${esId}/marks`,
+      headers: auth(),
+    });
+    const rows = grid.json().data.rows as Array<{
+      studentId: string;
+      marksObtained: number | null;
+      grade: string | null;
+      isAbsent: boolean;
+    }>;
+    const a = rows.find((x) => x.studentId === s1)!;
+    const b = rows.find((x) => x.studentId === s2)!;
+    expect(a.marksObtained).toBe(85);
+    expect(a.grade).toBe('A2'); // CBSE 81–90
+    expect(b.isAbsent).toBe(true);
+    expect(b.grade).toBeNull();
+  });
+
+  it('a teacher who does not teach the subject is blocked → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/exam-subjects/${esId}/marks`,
+      headers: { 'x-tenant-slug': SLUG, authorization: `Bearer ${teacherToken}` },
+      payload: { entries: [{ studentId: s1, marksObtained: 50 }] },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('verifies then locks; locked marks reject further edits', async () => {
+    const verify = await app.inject({
+      method: 'POST',
+      url: `/v1/exam-subjects/${esId}/verify`,
+      headers: auth(),
+    });
+    expect(verify.json().data.verified).toBe(2);
+
+    const lock = await app.inject({
+      method: 'POST',
+      url: `/v1/exam-subjects/${esId}/lock`,
+      headers: auth(),
+    });
+    expect(lock.json().data.locked).toBe(2);
+
+    const edit = await app.inject({
+      method: 'POST',
+      url: `/v1/exam-subjects/${esId}/marks`,
+      headers: auth(),
+      payload: { entries: [{ studentId: s1, marksObtained: 99 }] },
+    });
+    expect(edit.statusCode).toBe(409);
+  });
+});
