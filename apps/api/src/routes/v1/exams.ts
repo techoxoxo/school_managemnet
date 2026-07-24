@@ -3,6 +3,7 @@
  * Exams/datesheet/marks build on this in later tasks.
  */
 import {
+  classes,
   emitEvent,
   examResults,
   examSubjects,
@@ -12,6 +13,7 @@ import {
   reportCards,
   staffMembers,
   students,
+  subjects,
   subjectTeachers,
 } from '@schoolmate/db';
 import {
@@ -28,6 +30,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { writeAudit } from '../../lib/audit.js';
 import { assertFound, idParamSchema } from '../../lib/http.js';
+import { htmlToPdf } from '../../lib/pdf.js';
+import { renderReportCardHtml } from '../../lib/report-card-template.js';
 
 const scaleSchema = z.array(
   z.object({
@@ -998,6 +1002,103 @@ export async function examRoutes(app: FastifyInstance) {
           rank: r2.rank,
         })),
       };
+    },
+  );
+
+  // ── Report-card PDF (P2-MOD-18/19): render one student's card to A4 PDF ──
+  r.get(
+    '/exams/:id/students/:studentId/report-card.pdf',
+    {
+      config: view,
+      schema: {
+        tags: ['exams'],
+        params: z.object({ id: z.string().uuid(), studentId: z.string().uuid() }),
+      },
+    },
+    async (request, reply) => {
+      const { id: examId, studentId } = request.params;
+      const assembled = await request.tenantDb(async (db) => {
+        const [card] = await db
+          .select()
+          .from(reportCards)
+          .where(and(eq(reportCards.examId, examId), eq(reportCards.studentId, studentId)))
+          .limit(1);
+        assertFound(card, 'Report card');
+
+        const [exam] = await db
+          .select({ name: exams.name })
+          .from(exams)
+          .where(eq(exams.id, examId))
+          .limit(1);
+        assertFound(exam, 'Exam');
+
+        const [student] = await db
+          .select({
+            firstName: students.firstName,
+            lastName: students.lastName,
+            admissionNumber: students.admissionNumber,
+            className: classes.name,
+          })
+          .from(students)
+          .leftJoin(classes, eq(classes.id, students.currentClassId))
+          .where(eq(students.id, studentId))
+          .limit(1);
+        assertFound(student, 'Student');
+
+        const subjectRows = await db
+          .select({
+            subject: subjects.name,
+            marks: examResults.marksObtained,
+            maxMarks: examSubjects.maxMarks,
+            grade: examResults.grade,
+            isAbsent: examResults.isAbsent,
+            isExempt: examResults.isExempt,
+          })
+          .from(examResults)
+          .innerJoin(examSubjects, eq(examSubjects.id, examResults.examSubjectId))
+          .innerJoin(subjects, eq(subjects.id, examSubjects.subjectId))
+          .where(and(eq(examResults.examId, examId), eq(examResults.studentId, studentId)))
+          .orderBy(asc(subjects.name));
+
+        return { card, exam, student, subjectRows };
+      });
+
+      const html = renderReportCardHtml({
+        schoolName: request.tenant!.name,
+        examName: assembled.exam.name,
+        studentName: [assembled.student.firstName, assembled.student.lastName]
+          .filter(Boolean)
+          .join(' '),
+        admissionNumber: assembled.student.admissionNumber,
+        className: assembled.student.className,
+        subjects: assembled.subjectRows.map((s) => ({
+          subject: s.subject,
+          marks: s.isAbsent || s.isExempt ? null : s.marks,
+          maxMarks: s.maxMarks,
+          grade: s.grade,
+          status: s.isExempt ? 'exempt' : s.isAbsent ? 'absent' : 'ok',
+        })),
+        totalMarks: assembled.card.totalMarks,
+        maxMarks: assembled.card.maxMarks,
+        percentage: assembled.card.percentageBp == null ? null : assembled.card.percentageBp / 100,
+        grade: assembled.card.grade,
+        rank: assembled.card.rank,
+      });
+
+      let pdf: Buffer;
+      try {
+        pdf = await htmlToPdf(html);
+      } catch {
+        throw new AppError(
+          ErrorCodes.INTERNAL_ERROR,
+          'PDF rendering is unavailable (Chrome could not be launched)',
+          503,
+        );
+      }
+      return reply
+        .header('content-type', 'application/pdf')
+        .header('content-disposition', 'inline; filename="report-card.pdf"')
+        .send(pdf);
     },
   );
 }

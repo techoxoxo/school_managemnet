@@ -19,6 +19,8 @@ export const env = parseEnv({
   S3_ACCESS_KEY: z.string().default('schoolmate'),
   S3_SECRET_KEY: z.string().default('schoolmate_dev'),
   S3_BUCKET: z.string().default('schoolmate-docs'),
+  /** Chrome/Chromium executable for PDF rendering (P2-MOD-18, puppeteer-core). */
+  CHROME_PATH: z.string().default('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
   /** Base domain for subdomain → tenant resolution (springfield.<BASE_DOMAIN>). */
   BASE_DOMAIN: z.string().default('localhost'),
   /** Seconds a slug → tenant lookup stays cached in Redis. */

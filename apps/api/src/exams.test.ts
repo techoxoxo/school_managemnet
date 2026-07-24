@@ -1,12 +1,19 @@
 /**
  * Examinations — grading systems (P2-MOD-13) — live Postgres + Redis.
  */
+import { existsSync } from 'node:fs';
 import { createDb, createPool, tenants, users, userTenantRoles } from '@schoolmate/db';
 import bcrypt from 'bcryptjs';
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
+import { closeBrowser } from './lib/pdf.js';
+
+const CHROME_PATH =
+  process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME_UP = existsSync(CHROME_PATH);
+if (!CHROME_UP) console.warn('[exams.test] Chrome not found — skipping report-card PDF test');
 
 const ADMIN_URL =
   process.env.DATABASE_URL ?? 'postgres://schoolmate:schoolmate_dev@localhost:5433/schoolmate';
@@ -66,6 +73,7 @@ afterAll(async () => {
   await adminDb.execute(sql`DELETE FROM users WHERE email = ${ADMIN_EMAIL}`);
   await app.close();
   await adminPool.end();
+  await closeBrowser();
 });
 
 describe('grading systems (P2-MOD-13)', () => {
@@ -667,5 +675,91 @@ describe('result publishing: controlled release (P2-MOD-21)', () => {
       headers: auth(),
     });
     expect(res.statusCode).toBe(409);
+  });
+});
+
+describe.skipIf(!CHROME_UP)('report-card PDF (P2-MOD-18/19)', () => {
+  const mk = async (url: string, payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: 'POST', url, headers: auth(), payload });
+    return res.json().data;
+  };
+
+  it('renders a computed report card to a PDF document', { timeout: 40000 }, async () => {
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'PDF-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const klass = (await mk('/v1/classes', { branchId, name: 'PDF-9', classType: 'secondary' })).id;
+    const subA = (await mk('/v1/subjects', { branchId, name: 'Bio', code: `PDFB-${suffix}` })).id;
+    const grading = (await mk('/v1/grading-systems/from-preset', { branchId, preset: 'cbse' })).id;
+    const exam = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        classId: klass,
+        gradingSystemId: grading,
+        name: 'Cardable',
+      })
+    ).id;
+    const es = (
+      await mk(`/v1/exams/${exam}/subjects`, {
+        subjectId: subA,
+        examDate: '2026-12-15',
+        maxMarks: 100,
+      })
+    ).id;
+    const student = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `PDF1-${suffix}`,
+        firstName: 'Cara',
+        lastName: 'Dable',
+        currentClassId: klass,
+      })
+    ).id;
+    await mk(`/v1/exam-subjects/${es}/marks`, {
+      entries: [{ studentId: student, marksObtained: 88 }],
+    });
+    await mk(`/v1/exams/${exam}/compute`, {});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/exams/${exam}/students/${student}/report-card.pdf`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    // PDF magic bytes.
+    expect(res.rawPayload.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  });
+
+  it('404s for a student without a computed report card', async () => {
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'PDF2-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const exam = (await mk('/v1/exams', { branchId, academicSessionId: session, name: 'NoCards' }))
+      .id;
+    const student = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `PDF2-${suffix}`,
+        firstName: 'Nada',
+      })
+    ).id;
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/exams/${exam}/students/${student}/report-card.pdf`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(404);
   });
 });
