@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarCheck,
   Users,
+  GraduationCap,
   Upload,
   LogOut,
   Menu,
@@ -21,7 +22,8 @@ import { cn } from '@/lib/cn';
 const ICONS: Record<NavItem['icon'], typeof LayoutDashboard> = {
   dashboard: LayoutDashboard,
   branches: Building2,
-  students: Users,
+  students: GraduationCap,
+  staff: Users,
   attendance: CalendarCheck,
   import: Upload,
   settings: Building2,

@@ -40,7 +40,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | Phase         | Scope                                      | Tasks | Done | Status  |
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
-| Phase 1       | Core academic MVP                          | 34    | 30   | 🟨      |
+| Phase 1       | Core academic MVP                          | 34    | 31   | 🟨      |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
@@ -147,7 +147,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | P1-MOD-14 | Parent account auto-provisioning: magic-link invite via SMS/email (no password setup)                                        | P1-MOD-13, P0-AUTH-01 | ✅     | Plan §19 — /parents/:id/invite (provision+token+parent.invited event) → /auth/accept-invite passwordless login                                                                                            |
 | P1-MOD-15 | Sibling detection & linking                                                                                                  | P1-MOD-13             | ✅     | Feeds fee discounts in P2 — sibling detection via shared parents                                                                                                                                          |
 | P1-MOD-16 | Bulk import v1: Excel template for students+parents, column mapper, dry-run validation, staged commit, rollback by batch tag | P1-MOD-09             | ✅     | Plan §19 — import_batches + /imports/students (dry-run, all-or-nothing commit, rollback-by-batch, +parent link) + web /import wizard (CSV paste, column mapper, dry-run preview, rollback); verified live |
-| P1-MOD-17 | Student search: Meilisearch indexing + advanced filters UI                                                                   | P1-MOD-09             | 🟨     | Backend done: Meili index (tenant-filtered), best-effort sync on CRUD, GET /students/search (class/section/status filters) + /reindex; CI Meili service; UI pending                                       |
+| P1-MOD-17 | Student search: Meilisearch indexing + advanced filters UI                                                                   | P1-MOD-09             | ✅     | Meili index (tenant-filtered) + best-effort sync on CRUD + GET /students/search (typo-tolerant, class/section/status filters) + /reindex; web Students page with search; CI Meili service; verified live  |
 
 ## 1.3 Staff Basics
 
