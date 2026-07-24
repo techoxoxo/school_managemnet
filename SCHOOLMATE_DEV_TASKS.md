@@ -40,7 +40,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | Phase         | Scope                                      | Tasks | Done | Status  |
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
-| Phase 1       | Core academic MVP                          | 34    | 0    | ⬜      |
+| Phase 1       | Core academic MVP                          | 34    | 22   | 🟨      |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
