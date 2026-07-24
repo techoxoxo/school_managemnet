@@ -6,7 +6,7 @@ import {
   studentAttendance,
   students,
 } from '@schoolmate/db';
-import { EVENT_TYPES } from '@schoolmate/shared';
+import { AppError, ErrorCodes, EVENT_TYPES } from '@schoolmate/shared';
 import { and, between, count, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -169,6 +169,150 @@ export async function attendanceRoutes(app: FastifyInstance) {
       });
 
       return { success: true as const, data: result };
+    },
+  );
+
+  // ── Mark period-wise attendance (P1-MOD-24) ────────────────
+  const markPeriodsSchema = z.object({
+    branchId: z.string().uuid(),
+    classId: z.string().uuid().optional(),
+    sectionId: z.string().uuid().optional(),
+    academicSessionId: z.string().uuid().optional(),
+    date: z.string().date(),
+    source: z.enum(['manual', 'biometric', 'app', 'qr', 'rfid']).optional(),
+    entries: z
+      .array(
+        z.object({
+          studentId: z.string().uuid(),
+          periods: z
+            .array(
+              z.object({
+                period: z.number().int().min(1).max(20),
+                status: statusEnum,
+                subjectId: z.string().uuid().optional(),
+              }),
+            )
+            .min(1)
+            .max(20),
+          remarks: z.string().max(200).optional(),
+        }),
+      )
+      .min(1)
+      .max(200),
+  });
+
+  r.post(
+    '/attendance/mark-periods',
+    {
+      config: { permission: 'attendance.mark' },
+      schema: { tags: ['attendance'], body: markPeriodsSchema },
+    },
+    async (request) => {
+      const { branchId, classId, sectionId, academicSessionId, date, source, entries } =
+        request.body;
+      const attendedStatuses = new Set(['present', 'late', 'half_day']);
+
+      const result = await request.tenantDb(async (db) => {
+        for (const e of entries) {
+          // Reject duplicate period numbers within one student's day.
+          const seen = new Set<number>();
+          for (const p of e.periods) {
+            if (seen.has(p.period)) {
+              throw new AppError(
+                ErrorCodes.VALIDATION_ERROR,
+                `Duplicate period ${p.period} for a student`,
+                400,
+              );
+            }
+            seen.add(p.period);
+          }
+          // Day rollup: present if any period was attended, else absent.
+          const dayStatus = e.periods.some((p) => attendedStatuses.has(p.status))
+            ? 'present'
+            : 'absent';
+
+          await db
+            .insert(studentAttendance)
+            .values({
+              tenantId: request.tenant!.id,
+              branchId,
+              studentId: e.studentId,
+              classId: classId ?? null,
+              sectionId: sectionId ?? null,
+              academicSessionId: academicSessionId ?? null,
+              date,
+              status: dayStatus,
+              periodWise: e.periods,
+              source: source ?? 'manual',
+              markedBy: request.auth!.userId,
+              remarks: e.remarks ?? null,
+            })
+            .onConflictDoUpdate({
+              target: [
+                studentAttendance.tenantId,
+                studentAttendance.studentId,
+                studentAttendance.date,
+              ],
+              set: {
+                status: dayStatus,
+                periodWise: e.periods,
+                markedBy: request.auth!.userId,
+                markedAt: new Date(),
+                remarks: e.remarks ?? null,
+              },
+            });
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'attendance_periods',
+          entityId: `${sectionId ?? branchId}:${date}`,
+          newValues: { date, count: entries.length },
+        });
+        return { marked: entries.length };
+      });
+      return { success: true as const, data: result };
+    },
+  );
+
+  // ── Period-wise register for a section on a date (P1-MOD-24) ─
+  r.get(
+    '/attendance/periods',
+    {
+      config: { permission: 'attendance.view' },
+      schema: {
+        tags: ['attendance'],
+        querystring: z.object({
+          date: z.string().date(),
+          sectionId: z.string().uuid().optional(),
+          classId: z.string().uuid().optional(),
+          branchId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (request) => {
+      const { date, sectionId, classId, branchId } = request.query;
+      const filters = [
+        eq(studentAttendance.date, date),
+        sectionId ? eq(studentAttendance.sectionId, sectionId) : undefined,
+        classId ? eq(studentAttendance.classId, classId) : undefined,
+        branchId ? eq(studentAttendance.branchId, branchId) : undefined,
+      ].filter((f): f is NonNullable<typeof f> => f !== undefined);
+
+      const rows = await request.tenantDb((db) =>
+        db
+          .select({
+            id: studentAttendance.id,
+            studentId: studentAttendance.studentId,
+            studentName: students.firstName,
+            status: studentAttendance.status,
+            periodWise: studentAttendance.periodWise,
+          })
+          .from(studentAttendance)
+          .innerJoin(students, eq(students.id, studentAttendance.studentId))
+          .where(and(...filters))
+          .orderBy(students.firstName),
+      );
+      return { success: true as const, data: rows };
     },
   );
 

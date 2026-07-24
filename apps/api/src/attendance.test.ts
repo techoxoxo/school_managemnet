@@ -239,6 +239,85 @@ describe('attendance marking + absent notification (P1-MOD-23 / P1-API-03)', () 
     expect(data.percentage).toBe(75);
   });
 
+  it('marks period-wise attendance and reads the period register (P1-MOD-24)', async () => {
+    const s = await createStudent('Periodic Pete');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/mark-periods',
+      headers: auth(teacherToken),
+      payload: {
+        branchId,
+        date: '2026-10-05',
+        entries: [
+          {
+            studentId: s,
+            periods: [
+              { period: 1, status: 'present' },
+              { period: 2, status: 'absent' },
+              { period: 3, status: 'late' },
+            ],
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ marked: 1 });
+
+    const reg = await app.inject({
+      method: 'GET',
+      url: `/v1/attendance/periods?date=2026-10-05&branchId=${branchId}`,
+      headers: auth(teacherToken),
+    });
+    const row = reg.json().data.find((x: { studentId: string }) => x.studentId === s);
+    expect(row.status).toBe('present'); // rollup: attended ≥1 period
+    expect(row.periodWise).toHaveLength(3);
+    expect(row.periodWise[1]).toMatchObject({ period: 2, status: 'absent' });
+  });
+
+  it('rolls up to absent when no period was attended', async () => {
+    const s = await createStudent('Missing Meg');
+    await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/mark-periods',
+      headers: auth(teacherToken),
+      payload: {
+        branchId,
+        date: '2026-10-06',
+        entries: [{ studentId: s, periods: [{ period: 1, status: 'absent' }] }],
+      },
+    });
+    const reg = await app.inject({
+      method: 'GET',
+      url: `/v1/attendance/periods?date=2026-10-06&branchId=${branchId}`,
+      headers: auth(teacherToken),
+    });
+    const row = reg.json().data.find((x: { studentId: string }) => x.studentId === s);
+    expect(row.status).toBe('absent');
+  });
+
+  it('rejects duplicate period numbers for a student → 400', async () => {
+    const s = await createStudent('Dupe Dan');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/attendance/mark-periods',
+      headers: auth(teacherToken),
+      payload: {
+        branchId,
+        date: '2026-10-07',
+        entries: [
+          {
+            studentId: s,
+            periods: [
+              { period: 1, status: 'present' },
+              { period: 1, status: 'absent' },
+            ],
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('respects autoNotifyParentOnAbsent=false (no event emitted)', async () => {
     await app.inject({
       method: 'PATCH',
