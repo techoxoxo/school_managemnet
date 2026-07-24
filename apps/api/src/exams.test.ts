@@ -391,3 +391,88 @@ describe('marks entry + verification (P2-MOD-15/16)', () => {
     expect(edit.statusCode).toBe(409);
   });
 });
+
+describe('grade calc + rank (P2-MOD-17)', () => {
+  it('aggregates marks into ranked report cards', async () => {
+    const mk = async (url: string, payload: Record<string, unknown>) => {
+      const res = await app.inject({ method: 'POST', url, headers: auth(), payload });
+      return res.json().data;
+    };
+
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'R-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const klass = (await mk('/v1/classes', { branchId, name: 'Grade 9', classType: 'secondary' }))
+      .id;
+    const subA = (await mk('/v1/subjects', { branchId, name: 'Phys', code: `P-${suffix}` })).id;
+    const subB = (await mk('/v1/subjects', { branchId, name: 'Chem', code: `C-${suffix}` })).id;
+    const grading = (await mk('/v1/grading-systems/from-preset', { branchId, preset: 'cbse' })).id;
+    const exam = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        classId: klass,
+        gradingSystemId: grading,
+        name: 'Ranker',
+      })
+    ).id;
+    const esA = (
+      await mk(`/v1/exams/${exam}/subjects`, {
+        subjectId: subA,
+        examDate: '2026-12-15',
+        maxMarks: 100,
+      })
+    ).id;
+    const esB = (
+      await mk(`/v1/exams/${exam}/subjects`, {
+        subjectId: subB,
+        examDate: '2026-12-17',
+        maxMarks: 100,
+      })
+    ).id;
+    const top = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `RK1-${suffix}`,
+        firstName: 'Top',
+        currentClassId: klass,
+      })
+    ).id;
+    const low = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `RK2-${suffix}`,
+        firstName: 'Low',
+        currentClassId: klass,
+      })
+    ).id;
+
+    // Top: 90 + 80 = 170/200 = 85%. Low: 60 + 50 = 110/200 = 55%.
+    await mk(`/v1/exam-subjects/${esA}/marks`, {
+      entries: [
+        { studentId: top, marksObtained: 90 },
+        { studentId: low, marksObtained: 60 },
+      ],
+    });
+    await mk(`/v1/exam-subjects/${esB}/marks`, {
+      entries: [
+        { studentId: top, marksObtained: 80 },
+        { studentId: low, marksObtained: 50 },
+      ],
+    });
+
+    const compute = await mk(`/v1/exams/${exam}/compute`, {});
+    expect(compute.students).toBe(2);
+
+    const cards = (
+      await app.inject({ method: 'GET', url: `/v1/exams/${exam}/report-cards`, headers: auth() })
+    ).json().data as Array<{ studentId: string; percentage: number; grade: string; rank: number }>;
+    expect(cards[0]).toMatchObject({ studentId: top, percentage: 85, grade: 'A2', rank: 1 });
+    expect(cards[1]).toMatchObject({ studentId: low, percentage: 55, grade: 'C1', rank: 2 });
+  });
+});

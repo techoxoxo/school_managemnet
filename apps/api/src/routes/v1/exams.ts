@@ -8,6 +8,7 @@ import {
   examTypes,
   exams,
   gradingSystems,
+  reportCards,
   staffMembers,
   students,
   subjectTeachers,
@@ -638,5 +639,161 @@ export async function examRoutes(app: FastifyInstance) {
     '/exam-subjects/:id/lock',
     { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
     transition('verified', 'locked'),
+  );
+
+  // ── Grade calc + class rank → report cards (P2-MOD-17) ──────
+  r.post(
+    '/exams/:id/compute',
+    { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const result = await request.tenantDb(async (db) => {
+        const [exam] = await db
+          .select()
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(exam, 'Exam');
+        let scale: GradingScale = [];
+        if (exam.gradingSystemId) {
+          const [gs] = await db
+            .select()
+            .from(gradingSystems)
+            .where(eq(gradingSystems.id, exam.gradingSystemId))
+            .limit(1);
+          scale = (gs?.scale ?? []) as GradingScale;
+        }
+
+        const rows = await db
+          .select({
+            studentId: examResults.studentId,
+            marks: examResults.marksObtained,
+            isAbsent: examResults.isAbsent,
+            isExempt: examResults.isExempt,
+            subjectId: examSubjects.subjectId,
+            subjectMax: examSubjects.maxMarks,
+          })
+          .from(examResults)
+          .innerJoin(examSubjects, eq(examSubjects.id, examResults.examSubjectId))
+          .where(eq(examResults.examId, exam.id));
+
+        // Aggregate per student: exempt subjects drop out of both totals;
+        // absent counts as 0 obtained but still against the max.
+        type Agg = {
+          obtained: number;
+          max: number;
+          subjects: Array<Record<string, unknown>>;
+        };
+        const byStudent = new Map<string, Agg>();
+        for (const row of rows) {
+          const agg = byStudent.get(row.studentId) ?? { obtained: 0, max: 0, subjects: [] };
+          if (!row.isExempt) {
+            agg.obtained += row.isAbsent ? 0 : (row.marks ?? 0);
+            agg.max += row.subjectMax;
+          }
+          agg.subjects.push({
+            subjectId: row.subjectId,
+            marks: row.marks,
+            maxMarks: row.subjectMax,
+            isAbsent: row.isAbsent,
+            isExempt: row.isExempt,
+          });
+          byStudent.set(row.studentId, agg);
+        }
+
+        // Percentages then standard competition ranking (ties share a rank).
+        const computed = [...byStudent.entries()].map(([studentId, a]) => ({
+          studentId,
+          totalMarks: a.obtained,
+          maxMarks: a.max,
+          percentageBp: a.max > 0 ? Math.round((a.obtained / a.max) * 10000) : 0,
+          grade:
+            a.max > 0
+              ? (gradeForPercentage(scale, (a.obtained / a.max) * 100)?.grade ?? null)
+              : null,
+          subjects: a.subjects,
+        }));
+        computed.sort((x, y) => y.percentageBp - x.percentageBp);
+        let rank = 0;
+        let prevBp: number | null = null;
+        computed.forEach((c, i) => {
+          if (c.percentageBp !== prevBp) {
+            rank = i + 1;
+            prevBp = c.percentageBp;
+          }
+          (c as typeof c & { rank: number }).rank = rank;
+        });
+
+        for (const c of computed as Array<(typeof computed)[number] & { rank: number }>) {
+          await db
+            .insert(reportCards)
+            .values({
+              tenantId: request.tenant!.id,
+              examId: exam.id,
+              studentId: c.studentId,
+              data: { subjects: c.subjects },
+              totalMarks: c.totalMarks,
+              maxMarks: c.maxMarks,
+              percentageBp: c.percentageBp,
+              grade: c.grade,
+              rank: c.rank,
+            })
+            .onConflictDoUpdate({
+              target: [reportCards.tenantId, reportCards.examId, reportCards.studentId],
+              set: {
+                data: { subjects: c.subjects },
+                totalMarks: c.totalMarks,
+                maxMarks: c.maxMarks,
+                percentageBp: c.percentageBp,
+                grade: c.grade,
+                rank: c.rank,
+              },
+            });
+        }
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'exam_results_computed',
+          entityId: exam.id,
+          newValues: { students: computed.length },
+        });
+        return { students: computed.length };
+      });
+      return { success: true as const, data: result };
+    },
+  );
+
+  r.get(
+    '/exams/:id/report-cards',
+    { config: view, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const rows = await request.tenantDb((db) =>
+        db
+          .select({
+            studentId: reportCards.studentId,
+            firstName: students.firstName,
+            lastName: students.lastName,
+            totalMarks: reportCards.totalMarks,
+            maxMarks: reportCards.maxMarks,
+            percentageBp: reportCards.percentageBp,
+            grade: reportCards.grade,
+            rank: reportCards.rank,
+          })
+          .from(reportCards)
+          .innerJoin(students, eq(students.id, reportCards.studentId))
+          .where(eq(reportCards.examId, request.params.id))
+          .orderBy(asc(reportCards.rank)),
+      );
+      return {
+        success: true as const,
+        data: rows.map((r2) => ({
+          studentId: r2.studentId,
+          name: [r2.firstName, r2.lastName].filter(Boolean).join(' '),
+          totalMarks: r2.totalMarks,
+          maxMarks: r2.maxMarks,
+          percentage: r2.percentageBp == null ? null : r2.percentageBp / 100,
+          grade: r2.grade,
+          rank: r2.rank,
+        })),
+      };
+    },
   );
 }
