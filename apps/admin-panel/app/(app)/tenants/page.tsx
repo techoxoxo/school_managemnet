@@ -49,7 +49,14 @@ export default async function TenantsPage() {
             ) : (
               tenants.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.name}</td>
+                  <td>
+                    <Link
+                      href={`/tenants/${t.id}`}
+                      style={{ color: 'var(--brand)', fontWeight: 500 }}
+                    >
+                      {t.name}
+                    </Link>
+                  </td>
                   <td className="muted">{t.slug}</td>
                   <td>
                     <span className="badge">{t.instituteType.replace(/_/g, ' ')}</span>

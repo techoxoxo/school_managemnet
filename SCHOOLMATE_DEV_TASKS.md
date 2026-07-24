@@ -40,7 +40,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | Phase         | Scope                                      | Tasks | Done | Status  |
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
-| Phase 1       | Core academic MVP                          | 34    | 22   | 🟨      |
+| Phase 1       | Core academic MVP                          | 34    | 27   | 🟨      |
 | Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
@@ -124,15 +124,15 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 1.1 Tenant Onboarding & Structure
 
-| ID        | Task                                                                                          | Depends on | Status | Notes                                                                                                                                |
-| --------- | --------------------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| P1-MOD-01 | Super-admin panel skeleton (`apps/admin-panel`): tenant list, create tenant                   | P0-WEB-06  | ✅     | Plan §6 M1 — platform auth (is_platform_admin, role-gated /platform routes) + tenant list/create API + admin-panel UI; verified live |
-| P1-MOD-02 | Tenant onboarding wizard: institute-type preset selection → auto-scaffold classes/terminology | P1-MOD-01  | ⬜     | Plan §15                                                                                                                             |
-| P1-MOD-03 | Institute profile config engine: enabled modules, terminology packs, feature flags per tenant | P1-MOD-02  | ⬜     | Plan §15 — foundational                                                                                                              |
-| P1-MOD-04 | Branch management CRUD + branch-scoped config overrides                                       | P1-MOD-02  | ✅     | full CRUD via registerCrud factory + audit + branch config                                                                           |
-| P1-MOD-05 | Academic session management: create, set current, lock past sessions                          | P1-MOD-04  | ✅     | sessions CRUD, branchId filter, isCurrent/isLocked                                                                                   |
-| P1-MOD-06 | Classes & sections CRUD: DB (§4.F) + API + UI, class-teacher assignment                       | P1-MOD-05  | ✅     | classes+sections CRUD, unique constraints→409, branch/class filters                                                                  |
-| P1-MOD-07 | Subjects CRUD + class-subject mapping + subject-teacher assignment                            | P1-MOD-06  | ✅     | subjects CRUD + class_subjects mapping + subject_teachers assign (joined listings, audit, RLS)                                       |
+| ID        | Task                                                                                          | Depends on | Status | Notes                                                                                                                                      |
+| --------- | --------------------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| P1-MOD-01 | Super-admin panel skeleton (`apps/admin-panel`): tenant list, create tenant                   | P0-WEB-06  | ✅     | Plan §6 M1 — platform auth (is_platform_admin, role-gated /platform routes) + tenant list/create API + admin-panel UI; verified live       |
+| P1-MOD-02 | Tenant onboarding wizard: institute-type preset selection → auto-scaffold classes/terminology | P1-MOD-01  | ✅     | Plan §15 — POST /platform/tenants/:id/onboard scaffolds branch+session+class ladder from preset; admin-panel onboard action; verified live |
+| P1-MOD-03 | Institute profile config engine: enabled modules, terminology packs, feature flags per tenant | P1-MOD-02  | ✅     | Plan §15 — INSTITUTE_PRESETS + PATCH /platform/tenants/:id/config (merge) + tenant GET /v1/config; admin-panel config view                 |
+| P1-MOD-04 | Branch management CRUD + branch-scoped config overrides                                       | P1-MOD-02  | ✅     | full CRUD via registerCrud factory + audit + branch config                                                                                 |
+| P1-MOD-05 | Academic session management: create, set current, lock past sessions                          | P1-MOD-04  | ✅     | sessions CRUD, branchId filter, isCurrent/isLocked                                                                                         |
+| P1-MOD-06 | Classes & sections CRUD: DB (§4.F) + API + UI, class-teacher assignment                       | P1-MOD-05  | ✅     | classes+sections CRUD, unique constraints→409, branch/class filters                                                                        |
+| P1-MOD-07 | Subjects CRUD + class-subject mapping + subject-teacher assignment                            | P1-MOD-06  | ✅     | subjects CRUD + class_subjects mapping + subject_teachers assign (joined listings, audit, RLS)                                             |
 
 ## 1.2 Students, Admissions & Parents
 

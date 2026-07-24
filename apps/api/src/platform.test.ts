@@ -3,9 +3,9 @@
  * Verifies platform-login (is_platform_admin gate), the tenant registry
  * endpoints, and that a tenant_admin '*' token cannot reach /platform.
  */
-import { createDb, createPool, tenants, users, userTenantRoles } from '@schoolmate/db';
+import { classes, createDb, createPool, tenants, users, userTenantRoles } from '@schoolmate/db';
 import bcrypt from 'bcryptjs';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
@@ -25,6 +25,7 @@ const NEW_SLUG = `newtenant-${suffix}`;
 const PASSWORD = 'pw-12345678';
 
 let tenantId: string;
+let newTenantId: string;
 let platformToken: string;
 let tenantAdminToken: string;
 
@@ -112,6 +113,7 @@ describe('platform tenant registry (P1-MOD-01)', () => {
     });
     expect(res.statusCode).toBe(201);
     const t = res.json().data;
+    newTenantId = t.id;
     expect(t.instituteType).toBe('college');
     // College preset terminology: a class is a "Course".
     expect(t.config.terminology.class).toBe('Course');
@@ -140,5 +142,67 @@ describe('platform tenant registry (P1-MOD-01)', () => {
   it('requires authentication → 401', async () => {
     const res = await app.inject({ method: 'GET', url: '/platform/tenants' });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('config engine (P1-MOD-03)', () => {
+  it('updates a tenant config (merged)', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/platform/tenants/${tenantId}/config`,
+      headers: bearer(platformToken),
+      payload: {
+        maxStudents: 500,
+        modules: ['students', 'fees'],
+        terminology: { student: 'Scholar' },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const t = res.json().data;
+    expect(t.maxStudents).toBe(500);
+    expect(t.config.modules).toEqual(['students', 'fees']);
+    expect(t.config.terminology.student).toBe('Scholar');
+  });
+
+  it('lets a tenant read its own effective config via /v1/config', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/config',
+      headers: { 'x-tenant-slug': SLUG, ...bearer(tenantAdminToken) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.terminology.student).toBe('Scholar');
+    expect(res.json().data.modules).toContain('fees');
+  });
+});
+
+describe('onboarding auto-scaffold (P1-MOD-02)', () => {
+  it('scaffolds a branch + session + class ladder from the preset', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/platform/tenants/${newTenantId}/onboard`,
+      headers: bearer(platformToken),
+      payload: { session: { name: '2026-2027', startDate: '2026-06-01', endDate: '2027-05-31' } },
+    });
+    expect(res.statusCode).toBe(201);
+    // College preset ships 8 semesters.
+    expect(res.json().data.classesCreated).toBe(8);
+    expect(res.json().data.branchId).toBeTruthy();
+    expect(res.json().data.sessionId).toBeTruthy();
+
+    const [t] = await adminDb.select().from(tenants).where(eq(tenants.id, newTenantId));
+    expect(t!.onboardedAt).not.toBeNull();
+    const cls = await adminDb.select().from(classes).where(eq(classes.tenantId, newTenantId));
+    expect(cls.length).toBe(8);
+  });
+
+  it('refuses to onboard twice → 409', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/platform/tenants/${newTenantId}/onboard`,
+      headers: bearer(platformToken),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(409);
   });
 });

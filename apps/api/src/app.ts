@@ -31,6 +31,7 @@ import { staffRoutes } from './routes/v1/staff.js';
 import { staffAttendanceRoutes } from './routes/v1/staff-attendance.js';
 import { studentRoutes } from './routes/v1/students.js';
 import { subjectRoutes } from './routes/v1/subjects.js';
+import { tenantConfigRoutes } from './routes/v1/tenant-config.js';
 
 export interface RouteRegistryEntry {
   method: string;
@@ -98,6 +99,7 @@ export async function buildApp() {
   await app.register(staffAttendanceRoutes, { prefix: '/v1' });
   await app.register(attendanceRoutes, { prefix: '/v1' });
   await app.register(dashboardRoutes, { prefix: '/v1' });
+  await app.register(tenantConfigRoutes, { prefix: '/v1' });
   await app.register(platformRoutes);
 
   return app;
