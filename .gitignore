@@ -32,3 +32,7 @@ coverage/
 .code-review-graph/
 .claude/*
 !.claude/launch.json
+
+# Playwright
+test-results/
+playwright-report/
