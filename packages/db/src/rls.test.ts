@@ -53,6 +53,12 @@ const TENANT_SCOPED_TABLES = [
   'fee_payments',
   'fee_payment_allocations',
   'fee_discounts',
+  'exam_types',
+  'grading_systems',
+  'exams',
+  'exam_subjects',
+  'exam_results',
+  'report_cards',
 ];
 
 const adminPool = createPool(ADMIN_URL);

@@ -203,3 +203,15 @@ export const feeDiscountTypeEnum = pgEnum('fee_discount_type', [
   'scholarship',
   'custom',
 ]);
+
+export const examStatusEnum = pgEnum('exam_status', [
+  'draft',
+  'scheduled',
+  'ongoing',
+  'completed',
+  'published',
+]);
+
+export const resultStatusEnum = pgEnum('result_status', ['entered', 'verified', 'locked']);
+
+export const gradingTypeEnum = pgEnum('grading_type', ['percentage', 'gpa', 'letter']);

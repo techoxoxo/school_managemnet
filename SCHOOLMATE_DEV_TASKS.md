@@ -41,7 +41,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
 | Phase 1       | Core academic MVP                          | 33    | 33   | ✅ (G2) |
-| Phase 2       | Fees & examinations                        | 30    | 1    | 🟨      |
+| Phase 2       | Fees & examinations                        | 30    | 2    | 🟨      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
 | Phase 5       | Advanced & polish                          | 22    | 0    | ⬜      |
@@ -205,20 +205,20 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 
 ## 2.2 Examinations & Results
 
-| ID        | Task                                                                                                     | Depends on            | Status | Notes                     |
-| --------- | -------------------------------------------------------------------------------------------------------- | --------------------- | ------ | ------------------------- |
-| P2-MOD-12 | Exam schema (§4.J): exam_types, exams, results, grading_systems, report_cards                            | P0-DB-05              | ⬜     |                           |
-| P2-MOD-13 | Grading system config: CBSE/ICSE/percentage/GPA presets + custom scale builder                           | P2-MOD-12             | ⬜     |                           |
-| P2-MOD-14 | Exam scheduling: create exams, datesheet, conflict detection                                             | P2-MOD-12, P1-MOD-07  | ⬜     |                           |
-| P2-MOD-15 | Marks entry UI: spreadsheet-style grid, teacher-scoped (own subjects only via ABAC), absent/exempt flags | P2-MOD-14, P0-AUTH-06 | ⬜     |                           |
-| P2-MOD-16 | Marks verification workflow: entered → verified → locked                                                 | P2-MOD-15             | ⬜     |                           |
-| P2-MOD-17 | Grade calculation + rank generation (class/section)                                                      | P2-MOD-16, P2-MOD-13  | ⬜     |                           |
-| P2-MOD-18 | Report card engine: data assembly → React template → Puppeteer PDF (Plan §14 pipeline)                   | P2-MOD-17             | ⬜     |                           |
-| P2-MOD-19 | Report card templates: CBSE + generic formats, tenant template config (JSONB layout)                     | P2-MOD-18             | ⬜     |                           |
-| P2-MOD-20 | Bulk report generation: Bull queue worker, S3 caching, batch notify                                      | P2-MOD-18             | ⬜     |                           |
-| P2-MOD-21 | Result publishing: controlled release, pre-generation + cache warming before publish                     | P2-MOD-20             | ⬜     | Plan §20 result-day spike |
-| P2-MOD-22 | Academic analytics: subject-wise averages, pass %, distribution charts                                   | P2-MOD-17             | ⬜     |                           |
-| P2-QA-01  | E2E: fee collect (cash + gateway sandbox) + marks → publish → report card PDF                            | all above             | ⬜     | Phase exit gate           |
+| ID        | Task                                                                                                     | Depends on            | Status | Notes                                                                                                            |
+| --------- | -------------------------------------------------------------------------------------------------------- | --------------------- | ------ | ---------------------------------------------------------------------------------------------------------------- |
+| P2-MOD-12 | Exam schema (§4.J): exam_types, exams, results, grading_systems, report_cards                            | P0-DB-05              | ✅     | exam_types, grading_systems, exams, exam_subjects (datesheet), exam_results, report_cards; FORCE RLS + leak test |
+| P2-MOD-13 | Grading system config: CBSE/ICSE/percentage/GPA presets + custom scale builder                           | P2-MOD-12             | ⬜     |                                                                                                                  |
+| P2-MOD-14 | Exam scheduling: create exams, datesheet, conflict detection                                             | P2-MOD-12, P1-MOD-07  | ⬜     |                                                                                                                  |
+| P2-MOD-15 | Marks entry UI: spreadsheet-style grid, teacher-scoped (own subjects only via ABAC), absent/exempt flags | P2-MOD-14, P0-AUTH-06 | ⬜     |                                                                                                                  |
+| P2-MOD-16 | Marks verification workflow: entered → verified → locked                                                 | P2-MOD-15             | ⬜     |                                                                                                                  |
+| P2-MOD-17 | Grade calculation + rank generation (class/section)                                                      | P2-MOD-16, P2-MOD-13  | ⬜     |                                                                                                                  |
+| P2-MOD-18 | Report card engine: data assembly → React template → Puppeteer PDF (Plan §14 pipeline)                   | P2-MOD-17             | ⬜     |                                                                                                                  |
+| P2-MOD-19 | Report card templates: CBSE + generic formats, tenant template config (JSONB layout)                     | P2-MOD-18             | ⬜     |                                                                                                                  |
+| P2-MOD-20 | Bulk report generation: Bull queue worker, S3 caching, batch notify                                      | P2-MOD-18             | ⬜     |                                                                                                                  |
+| P2-MOD-21 | Result publishing: controlled release, pre-generation + cache warming before publish                     | P2-MOD-20             | ⬜     | Plan §20 result-day spike                                                                                        |
+| P2-MOD-22 | Academic analytics: subject-wise averages, pass %, distribution charts                                   | P2-MOD-17             | ⬜     |                                                                                                                  |
+| P2-QA-01  | E2E: fee collect (cash + gateway sandbox) + marks → publish → report card PDF                            | all above             | ⬜     | Phase exit gate                                                                                                  |
 
 ---
 

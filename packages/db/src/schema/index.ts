@@ -7,5 +7,6 @@ export * from './imports.js';
 export * from './people.js';
 export * from './messaging.js';
 export * from './fees.js';
+export * from './exams.js';
 export * from './staff.js';
 export * from './attendance.js';
