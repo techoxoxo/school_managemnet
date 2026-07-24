@@ -20,7 +20,7 @@ import {
   gradeForPercentage,
   type GradingScale,
 } from '@schoolmate/shared';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -758,6 +758,91 @@ export async function examRoutes(app: FastifyInstance) {
         return { students: computed.length };
       });
       return { success: true as const, data: result };
+    },
+  );
+
+  // ── Academic analytics (P2-MOD-22) ─────────────────────────
+  r.get(
+    '/exams/:id/analytics',
+    { config: view, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const examId = request.params.id;
+      const N = (v: unknown) => (v == null ? null : Number(v));
+      const data = await request.tenantDb(async (db) => {
+        const subjectStats = (
+          await db.execute(sql`
+            SELECT su.name AS "subject", es.pass_marks AS "passMarks",
+              COUNT(er.id) FILTER (WHERE NOT er.is_exempt) AS "count",
+              COALESCE(AVG(CASE WHEN er.is_absent THEN 0 ELSE er.marks_obtained END)
+                FILTER (WHERE NOT er.is_exempt), 0) AS "average",
+              MAX(CASE WHEN er.is_absent THEN 0 ELSE er.marks_obtained END)
+                FILTER (WHERE NOT er.is_exempt) AS "highest",
+              MIN(CASE WHEN er.is_absent THEN 0 ELSE er.marks_obtained END)
+                FILTER (WHERE NOT er.is_exempt) AS "lowest",
+              COUNT(*) FILTER (WHERE NOT er.is_exempt AND NOT er.is_absent
+                AND er.marks_obtained >= es.pass_marks) AS "passCount"
+            FROM exam_subjects es
+            JOIN subjects su ON su.id = es.subject_id
+            LEFT JOIN exam_results er ON er.exam_subject_id = es.id
+            WHERE es.exam_id = ${examId}
+            GROUP BY su.name, es.pass_marks
+            ORDER BY su.name
+          `)
+        ).rows as Array<Record<string, unknown>>;
+
+        const distribution = (
+          await db.execute(sql`
+            SELECT grade, COUNT(*) AS "count" FROM report_cards
+            WHERE exam_id = ${examId} AND grade IS NOT NULL
+            GROUP BY grade ORDER BY grade
+          `)
+        ).rows as Array<{ grade: string; count: string }>;
+
+        const overall = (
+          await db.execute(sql`
+            SELECT COUNT(*) AS "students",
+                   COALESCE(AVG(percentage_bp), 0) / 100 AS "averagePercentage"
+            FROM report_cards WHERE exam_id = ${examId}
+          `)
+        ).rows[0] as { students: string; averagePercentage: string };
+
+        const passedAll = (
+          await db.execute(sql`
+            SELECT COUNT(*) AS "n" FROM (
+              SELECT er.student_id
+              FROM exam_results er JOIN exam_subjects es ON es.id = er.exam_subject_id
+              WHERE er.exam_id = ${examId} AND NOT er.is_exempt
+              GROUP BY er.student_id
+              HAVING BOOL_AND(NOT er.is_absent AND er.marks_obtained >= es.pass_marks)
+            ) t
+          `)
+        ).rows[0] as { n: string };
+
+        const students = N(overall.students) ?? 0;
+        const passCount = N(passedAll.n) ?? 0;
+        return {
+          subjectStats: subjectStats.map((s) => ({
+            subject: s.subject,
+            count: N(s.count),
+            average: N(s.average) == null ? null : Math.round((N(s.average) as number) * 10) / 10,
+            highest: N(s.highest),
+            lowest: N(s.lowest),
+            passCount: N(s.passCount),
+            passPercent:
+              N(s.count) && (N(s.count) as number) > 0
+                ? Math.round(((N(s.passCount) as number) / (N(s.count) as number)) * 1000) / 10
+                : 0,
+          })),
+          gradeDistribution: distribution.map((d) => ({ grade: d.grade, count: N(d.count) })),
+          overall: {
+            students,
+            averagePercentage: Math.round(N(overall.averagePercentage)! * 10) / 10,
+            passCount,
+            passPercent: students > 0 ? Math.round((passCount / students) * 1000) / 10 : 0,
+          },
+        };
+      });
+      return { success: true as const, data };
     },
   );
 

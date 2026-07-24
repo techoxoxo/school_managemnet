@@ -476,3 +476,85 @@ describe('grade calc + rank (P2-MOD-17)', () => {
     expect(cards[1]).toMatchObject({ studentId: low, percentage: 55, grade: 'C1', rank: 2 });
   });
 });
+
+describe('academic analytics (P2-MOD-22)', () => {
+  it('reports subject stats, pass %, and grade distribution', async () => {
+    const mk = async (url: string, payload: Record<string, unknown>) => {
+      const res = await app.inject({ method: 'POST', url, headers: auth(), payload });
+      return res.json().data;
+    };
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'A-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const klass = (await mk('/v1/classes', { branchId, name: 'Grade 10', classType: 'secondary' }))
+      .id;
+    const subject = (await mk('/v1/subjects', { branchId, name: 'Bio', code: `B-${suffix}` })).id;
+    const grading = (await mk('/v1/grading-systems/from-preset', { branchId, preset: 'cbse' })).id;
+    const exam = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        classId: klass,
+        gradingSystemId: grading,
+        name: 'Analytics Exam',
+      })
+    ).id;
+    const es = (
+      await mk(`/v1/exams/${exam}/subjects`, {
+        subjectId: subject,
+        examDate: '2026-12-20',
+        maxMarks: 100,
+        passMarks: 33,
+      })
+    ).id;
+    const pass = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `AN1-${suffix}`,
+        firstName: 'P',
+        currentClassId: klass,
+      })
+    ).id;
+    const fail = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `AN2-${suffix}`,
+        firstName: 'F',
+        currentClassId: klass,
+      })
+    ).id;
+
+    // 80 (pass) and 20 (fail) → avg 50, pass% 50.
+    await mk(`/v1/exam-subjects/${es}/marks`, {
+      entries: [
+        { studentId: pass, marksObtained: 80 },
+        { studentId: fail, marksObtained: 20 },
+      ],
+    });
+    await mk(`/v1/exams/${exam}/compute`, {});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/exams/${exam}/analytics`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const d = res.json().data;
+    const bio = d.subjectStats.find((s: { subject: string }) => s.subject === 'Bio');
+    expect(bio).toMatchObject({
+      count: 2,
+      average: 50,
+      highest: 80,
+      lowest: 20,
+      passCount: 1,
+      passPercent: 50,
+    });
+    expect(d.overall).toMatchObject({ students: 2, passCount: 1, passPercent: 50 });
+    expect(d.gradeDistribution.length).toBeGreaterThanOrEqual(1);
+  });
+});
