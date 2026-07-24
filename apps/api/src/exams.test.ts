@@ -558,3 +558,114 @@ describe('academic analytics (P2-MOD-22)', () => {
     expect(d.gradeDistribution.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('result publishing: controlled release (P2-MOD-21)', () => {
+  const mk = async (url: string, payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: 'POST', url, headers: auth(), payload });
+    return res.json().data;
+  };
+  let examId: string;
+  let studentId: string;
+
+  it('report cards are hidden from the student until published', async () => {
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'PUB-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const klass = (
+      await mk('/v1/classes', { branchId, name: 'Grade 11', classType: 'senior_secondary' })
+    ).id;
+    const subject = (await mk('/v1/subjects', { branchId, name: 'Hist', code: `H-${suffix}` })).id;
+    const grading = (await mk('/v1/grading-systems/from-preset', { branchId, preset: 'cbse' })).id;
+    examId = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        classId: klass,
+        gradingSystemId: grading,
+        name: 'Final',
+      })
+    ).id;
+    const es = (
+      await mk(`/v1/exams/${examId}/subjects`, {
+        subjectId: subject,
+        examDate: '2027-03-01',
+        maxMarks: 100,
+      })
+    ).id;
+    studentId = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `PUB-${suffix}`,
+        firstName: 'Pub',
+        currentClassId: klass,
+      })
+    ).id;
+    await mk(`/v1/exam-subjects/${es}/marks`, { entries: [{ studentId, marksObtained: 77 }] });
+    await mk(`/v1/exams/${examId}/compute`, {});
+
+    // Not published yet → student sees nothing.
+    const before = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentId}/report-cards`,
+      headers: auth(),
+    });
+    expect(before.json().data).toEqual([]);
+  });
+
+  it('publishes and the student can now see the report card', async () => {
+    const pub = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${examId}/publish`,
+      headers: auth(),
+    });
+    expect(pub.statusCode).toBe(200);
+    expect(pub.json().data.published).toBeGreaterThanOrEqual(1);
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentId}/report-cards`,
+      headers: auth(),
+    });
+    expect(after.json().data).toHaveLength(1);
+    expect(after.json().data[0]).toMatchObject({ examName: 'Final', percentage: 77 });
+  });
+
+  it('unpublish hides it again', async () => {
+    await app.inject({ method: 'POST', url: `/v1/exams/${examId}/unpublish`, headers: auth() });
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentId}/report-cards`,
+      headers: auth(),
+    });
+    expect(after.json().data).toEqual([]);
+  });
+
+  it('refuses to publish an exam with no computed results → 409', async () => {
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'PUB2-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const empty = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        name: 'Uncomputed',
+      })
+    ).id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${empty}/publish`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(409);
+  });
+});

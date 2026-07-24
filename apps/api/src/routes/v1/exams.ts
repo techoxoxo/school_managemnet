@@ -3,6 +3,7 @@
  * Exams/datesheet/marks build on this in later tasks.
  */
 import {
+  emitEvent,
   examResults,
   examSubjects,
   examTypes,
@@ -16,11 +17,12 @@ import {
 import {
   AppError,
   ErrorCodes,
+  EVENT_TYPES,
   GRADING_PRESETS,
   gradeForPercentage,
   type GradingScale,
 } from '@schoolmate/shared';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -843,6 +845,123 @@ export async function examRoutes(app: FastifyInstance) {
         };
       });
       return { success: true as const, data };
+    },
+  );
+
+  // ── Result publishing: controlled release (P2-MOD-21) ───────
+  r.post(
+    '/exams/:id/publish',
+    { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const result = await request.tenantDb(async (db) => {
+        const [exam] = await db
+          .select()
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(exam, 'Exam');
+        // Pre-generation guard: results must be computed before release.
+        const countRows = await db
+          .select({ n: count() })
+          .from(reportCards)
+          .where(eq(reportCards.examId, exam.id));
+        const n = countRows[0]?.n ?? 0;
+        if (n === 0) {
+          throw new AppError(ErrorCodes.CONFLICT, 'Compute results before publishing', 409);
+        }
+        const now = new Date();
+        await db
+          .update(exams)
+          .set({ status: 'published', publishedAt: now, updatedAt: now })
+          .where(eq(exams.id, exam.id));
+        await db
+          .update(reportCards)
+          .set({ publishedAt: now })
+          .where(eq(reportCards.examId, exam.id));
+        await emitEvent(db, {
+          tenantId: request.tenant!.id,
+          type: EVENT_TYPES.EXAM_RESULTS_PUBLISHED,
+          aggregateType: 'exam',
+          aggregateId: exam.id,
+          payload: { examId: exam.id, name: exam.name, reportCards: n },
+        });
+        await writeAudit(db, request.auth!, {
+          action: 'update',
+          entityType: 'exam',
+          entityId: exam.id,
+          newValues: { status: 'published', publishedCards: n },
+        });
+        return { published: n };
+      });
+      return { success: true as const, data: result };
+    },
+  );
+
+  r.post(
+    '/exams/:id/unpublish',
+    { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      await request.tenantDb(async (db) => {
+        const [exam] = await db
+          .select()
+          .from(exams)
+          .where(eq(exams.id, request.params.id))
+          .limit(1);
+        assertFound(exam, 'Exam');
+        await db
+          .update(exams)
+          .set({ status: 'completed', publishedAt: null, updatedAt: new Date() })
+          .where(eq(exams.id, exam.id));
+        await db
+          .update(reportCards)
+          .set({ publishedAt: null })
+          .where(eq(reportCards.examId, exam.id));
+        await writeAudit(db, request.auth!, {
+          action: 'update',
+          entityType: 'exam',
+          entityId: exam.id,
+          newValues: { status: 'completed', unpublished: true },
+        });
+      });
+      return { success: true as const, data: { unpublished: true } };
+    },
+  );
+
+  // A student's PUBLISHED report cards only (portal-safe controlled release).
+  r.get(
+    '/students/:id/report-cards',
+    { config: { permission: true }, schema: { tags: ['exams'], params: idParamSchema } },
+    async (request) => {
+      const rows = await request.tenantDb((db) =>
+        db
+          .select({
+            examId: reportCards.examId,
+            examName: exams.name,
+            totalMarks: reportCards.totalMarks,
+            maxMarks: reportCards.maxMarks,
+            percentageBp: reportCards.percentageBp,
+            grade: reportCards.grade,
+            rank: reportCards.rank,
+            publishedAt: reportCards.publishedAt,
+          })
+          .from(reportCards)
+          .innerJoin(exams, eq(exams.id, reportCards.examId))
+          .where(
+            and(eq(reportCards.studentId, request.params.id), isNotNull(reportCards.publishedAt)),
+          ),
+      );
+      return {
+        success: true as const,
+        data: rows.map((r2) => ({
+          examId: r2.examId,
+          examName: r2.examName,
+          totalMarks: r2.totalMarks,
+          maxMarks: r2.maxMarks,
+          percentage: r2.percentageBp == null ? null : r2.percentageBp / 100,
+          grade: r2.grade,
+          rank: r2.rank,
+        })),
+      };
     },
   );
 
