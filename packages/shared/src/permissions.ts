@@ -38,6 +38,10 @@ export const PERMISSIONS = {
   FEE_VIEW: 'fee.view',
   FEE_MANAGE: 'fee.manage',
   FEE_COLLECT: 'fee.collect',
+  // Examinations
+  EXAM_VIEW: 'exam.view',
+  EXAM_MANAGE: 'exam.manage',
+  EXAM_MARKS: 'exam.marks',
   // Users & roles
   USER_VIEW: 'user.view',
   USER_MANAGE: 'user.manage',
@@ -66,6 +70,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'staff.*',
     'attendance.*',
     'fee.*',
+    'exam.*',
     'user.view',
     'audit.view',
   ],
@@ -79,6 +84,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'staff.view',
     'attendance.view',
     'attendance.mark',
+    'exam.view',
+    'exam.marks',
   ],
   accountant: ['branch.view', 'session.view', 'student.view', 'parent.view', 'staff.view', 'fee.*'],
   librarian: ['branch.view', 'session.view', 'student.view'],
