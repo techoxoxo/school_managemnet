@@ -30,6 +30,7 @@ import { platformRoutes } from './routes/v1/platform.js';
 import { sectionRoutes } from './routes/v1/sections.js';
 import { staffRoutes } from './routes/v1/staff.js';
 import { staffAttendanceRoutes } from './routes/v1/staff-attendance.js';
+import { studentDocumentRoutes } from './routes/v1/student-documents.js';
 import { studentRoutes } from './routes/v1/students.js';
 import { subjectRoutes } from './routes/v1/subjects.js';
 import { tenantConfigRoutes } from './routes/v1/tenant-config.js';
@@ -94,6 +95,7 @@ export async function buildApp() {
   await app.register(subjectRoutes, { prefix: '/v1' });
   await app.register(curriculumRoutes, { prefix: '/v1' });
   await app.register(studentRoutes, { prefix: '/v1' });
+  await app.register(studentDocumentRoutes, { prefix: '/v1' });
   await app.register(admissionRoutes, { prefix: '/v1' });
   await app.register(parentRoutes, { prefix: '/v1' });
   await app.register(staffRoutes, { prefix: '/v1' });

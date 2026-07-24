@@ -13,6 +13,12 @@ export const env = parseEnv({
   /** Meilisearch (P1-MOD-17). Search degrades gracefully when unreachable. */
   MEILI_HOST: z.string().default('http://127.0.0.1:7700'),
   MEILI_MASTER_KEY: z.string().default('schoolmate_dev_master_key'),
+  /** Object storage for documents (P1-MOD-10). S3/MinIO. */
+  S3_ENDPOINT: z.string().default('http://127.0.0.1:9000'),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY: z.string().default('schoolmate'),
+  S3_SECRET_KEY: z.string().default('schoolmate_dev'),
+  S3_BUCKET: z.string().default('schoolmate-docs'),
   /** Base domain for subdomain → tenant resolution (springfield.<BASE_DOMAIN>). */
   BASE_DOMAIN: z.string().default('localhost'),
   /** Seconds a slug → tenant lookup stays cached in Redis. */

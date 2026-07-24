@@ -149,3 +149,15 @@ export const attendanceSourceEnum = pgEnum('attendance_source', [
 ]);
 
 export const attendanceTypeEnum = pgEnum('attendance_type', ['daily', 'period_wise']);
+
+export const documentTypeEnum = pgEnum('document_type', [
+  'photo',
+  'birth_certificate',
+  'aadhaar',
+  'transfer_certificate',
+  'marksheet',
+  'address_proof',
+  'other',
+]);
+
+export const documentStatusEnum = pgEnum('document_status', ['pending', 'verified', 'rejected']);

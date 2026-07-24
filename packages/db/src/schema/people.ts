@@ -9,7 +9,14 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { admissionStatusEnum, genderEnum, parentRelationEnum, studentStatusEnum } from './enums.js';
+import {
+  admissionStatusEnum,
+  documentStatusEnum,
+  documentTypeEnum,
+  genderEnum,
+  parentRelationEnum,
+  studentStatusEnum,
+} from './enums.js';
 import { academicSessions, branches, tenants } from './tenants.js';
 import { classes, sections } from './academics.js';
 import { importBatches } from './imports.js';
@@ -151,3 +158,26 @@ export const parentStudent = pgTable(
   },
   (t) => [uniqueIndex('parent_student_unique').on(t.tenantId, t.parentId, t.studentId)],
 );
+
+/** Tenant-scoped (RLS). Student documents (P1-MOD-10). Binary lives in S3/MinIO;
+ * this row is metadata + verification state. `storage_key` is the object key. */
+export const studentDocuments = pgTable('student_documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
+  studentId: uuid('student_id')
+    .notNull()
+    .references(() => students.id, { onDelete: 'cascade' }),
+  docType: documentTypeEnum('doc_type').notNull(),
+  fileName: text('file_name').notNull(),
+  storageKey: text('storage_key').notNull(),
+  contentType: text('content_type'),
+  sizeBytes: bigint('size_bytes', { mode: 'number' }),
+  status: documentStatusEnum('status').notNull().default('pending'),
+  remarks: text('remarks'),
+  uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+  verifiedBy: uuid('verified_by').references(() => users.id, { onDelete: 'set null' }),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
