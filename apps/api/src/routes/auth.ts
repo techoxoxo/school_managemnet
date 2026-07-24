@@ -207,6 +207,70 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
+  // P1-MOD-14: passwordless login via a magic-link invite token. The parent
+  // never sets a password; clicking the link logs them straight in.
+  r.post(
+    '/auth/accept-invite',
+    {
+      config: { permission: false, rateLimit: strictLimit(10) },
+      schema: { tags: ['auth'], body: z.object({ token: z.string().min(20) }) },
+    },
+    async (request, reply) => {
+      const tenant = request.tenant!;
+      const raw = await app.redis.get(`invite:${request.body.token}`);
+      const invalid = () =>
+        new AppError(ErrorCodes.TOKEN_EXPIRED, 'Invite link is invalid or expired', 400);
+      if (!raw) throw invalid();
+
+      const { userId, tenantId } = JSON.parse(raw) as { userId: string; tenantId: string };
+      // The link is bound to the tenant it was issued for.
+      if (tenantId !== tenant.id) throw invalid();
+
+      const roleRows = await request.tenantDb(async (db) => {
+        const res = await db.execute(
+          sql`SELECT role, branch_id, permissions FROM user_tenant_roles
+              WHERE user_id = ${userId} AND is_active = true
+              ORDER BY is_primary_role DESC LIMIT 1`,
+        );
+        return res.rows as unknown as DbRole[];
+      });
+      const roleResult = roleRows[0];
+      if (!roleResult) throw invalid();
+
+      // Single-use: consume the token, mark the email verified.
+      await app.redis.del(`invite:${request.body.token}`);
+      await app.pgApp.query(
+        `UPDATE users SET is_email_verified = true, last_login_at = now() WHERE id = $1`,
+        [userId],
+      );
+
+      const permissions = resolvePermissions(roleResult.role, roleResult.permissions ?? []);
+      const { sessionId, refreshToken } = await app.sessions.create({
+        userId,
+        tenantId: tenant.id,
+        role: roleResult.role,
+        branchId: roleResult.branch_id,
+        permissions,
+      });
+      const accessToken = await reply.jwtSign({
+        sub: userId,
+        tid: tenant.id,
+        sid: sessionId,
+        role: roleResult.role,
+      });
+      await logLogin(app, tenant.id, userId, request.ip, 'success', 'invite');
+
+      return {
+        success: true as const,
+        data: {
+          accessToken,
+          refreshToken,
+          user: { id: userId, role: roleResult.role, branchId: roleResult.branch_id, permissions },
+        },
+      };
+    },
+  );
+
   r.post(
     '/auth/forgot-password',
     {

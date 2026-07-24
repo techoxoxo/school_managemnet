@@ -7,6 +7,7 @@ import {
   createDb,
   createPool,
   outboxEvents,
+  parents as parentsTable,
   students as studentsTable,
   tenants,
   users,
@@ -363,5 +364,114 @@ describe('admission pipeline (P1-MOD-12)', () => {
       payload: { admissionNumber: `ADM2-${suffix}` },
     });
     expect(res.statusCode).toBe(409);
+  });
+});
+
+describe('parent magic-link invite + passwordless login (P1-MOD-14)', () => {
+  const PARENT_EMAIL = `parent-${suffix}@test.dev`;
+  let parentId: string;
+  let inviteToken: string;
+
+  afterAll(async () => {
+    await adminDb.execute(sql`DELETE FROM users WHERE email = ${PARENT_EMAIL}`);
+  });
+
+  it('provisions a parent account + token + event', async () => {
+    parentId = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/parents',
+        headers: auth(adminToken),
+        payload: { firstName: 'Marge', email: PARENT_EMAIL, phone: '555-0199' },
+      })
+    ).json().data.id;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/parents/${parentId}/invite`,
+      headers: auth(adminToken),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(201);
+    inviteToken = res.json().data.inviteToken;
+    expect(inviteToken).toBeTruthy();
+    expect(res.json().data.isNewUser).toBe(true);
+
+    const [parent] = await adminDb.select().from(parentsTable).where(eq(parentsTable.id, parentId));
+    expect(parent!.userId).toBeTruthy();
+
+    const roles = await adminDb
+      .select()
+      .from(userTenantRoles)
+      .where(
+        and(eq(userTenantRoles.userId, parent!.userId!), eq(userTenantRoles.tenantId, tenantId)),
+      );
+    expect(roles.map((r) => r.role)).toContain('parent');
+
+    const [event] = await adminDb
+      .select()
+      .from(outboxEvents)
+      .where(
+        and(eq(outboxEvents.aggregateId, parentId), eq(outboxEvents.eventType, 'parent.invited')),
+      );
+    expect(event).toBeTruthy();
+    expect((event!.payload as { phone?: string }).phone).toBe('555-0199');
+  });
+
+  it('accepts the invite → passwordless session (single-use)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/accept-invite',
+      headers: { 'x-tenant-slug': SLUG },
+      payload: { token: inviteToken },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.accessToken).toBeTruthy();
+    expect(res.json().data.user.role).toBe('parent');
+
+    // The access token works as a real session.
+    const me = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: { 'x-tenant-slug': SLUG, authorization: `Bearer ${res.json().data.accessToken}` },
+    });
+    expect(me.json().data.role).toBe('parent');
+
+    // Token is single-use.
+    const reuse = await app.inject({
+      method: 'POST',
+      url: '/auth/accept-invite',
+      headers: { 'x-tenant-slug': SLUG },
+      payload: { token: inviteToken },
+    });
+    expect(reuse.statusCode).toBe(400);
+  });
+
+  it('invite without any email → 400', async () => {
+    const noEmail = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/parents',
+        headers: auth(adminToken),
+        payload: { firstName: 'Patty' },
+      })
+    ).json().data.id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/parents/${noEmail}/invite`,
+      headers: auth(adminToken),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('viewer (no parent.manage) cannot invite → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/parents/${parentId}/invite`,
+      headers: auth(viewerToken),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(403);
   });
 });
