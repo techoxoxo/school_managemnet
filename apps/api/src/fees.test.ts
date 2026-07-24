@@ -11,11 +11,18 @@ import {
   users,
   userTenantRoles,
 } from '@schoolmate/db';
+import { existsSync } from 'node:fs';
 import bcrypt from 'bcryptjs';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
+import { closeBrowser } from './lib/pdf.js';
+
+const CHROME_PATH =
+  process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME_UP = existsSync(CHROME_PATH);
+if (!CHROME_UP) console.warn('[fees.test] Chrome not found — skipping receipt PDF test');
 
 const ADMIN_URL =
   process.env.DATABASE_URL ?? 'postgres://schoolmate:schoolmate_dev@localhost:5433/schoolmate';
@@ -124,6 +131,7 @@ afterAll(async () => {
   await adminDb.execute(sql`DELETE FROM users WHERE email IN (${ADMIN_EMAIL}, ${TEACHER_EMAIL})`);
   await app.close();
   await adminPool.end();
+  await closeBrowser();
 });
 
 let structureId: string;
@@ -594,5 +602,70 @@ describe('defaulters + reminders (P2-MOD-10)', () => {
     expect((event!.payload as { recipients: Array<{ phone?: string }> }).recipients[0]!.phone).toBe(
       '555-0777',
     );
+  });
+});
+
+describe.skipIf(!CHROME_UP)('receipt PDF (P2-MOD-07)', () => {
+  const mk = async (url: string, payload?: Record<string, unknown>) => {
+    const res = await app.inject({
+      method: 'POST',
+      url,
+      headers: auth(adminToken),
+      ...(payload ? { payload } : {}),
+    });
+    return res.json().data;
+  };
+
+  it('renders a numbered receipt PDF and flags reprints', { timeout: 40000 }, async () => {
+    const student = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `RCPT-${suffix}`,
+        firstName: 'Rita',
+        lastName: 'Ceipt',
+        currentClassId: classId,
+      })
+    ).id;
+    // Give this student their own dues, then collect against them.
+    await mk(`/v1/fee-structures/${structureId}/allocate`);
+    const pay = await mk(`/v1/students/${student}/payments`, {
+      amount: 3000,
+      method: 'upi',
+      reference: 'UTR-42',
+    });
+    const paymentId = pay.payment.id as string;
+    const receiptNumber = pay.payment.receiptNumber as string;
+
+    const first = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/${paymentId}/receipt.pdf`,
+      headers: auth(adminToken),
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.headers['content-type']).toContain('application/pdf');
+    expect(first.headers['content-disposition']).toContain(`receipt-${receiptNumber}.pdf`);
+    expect(first.rawPayload.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+    // Second fetch is a reprint — still 200, and a second export audit is logged.
+    const second = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/${paymentId}/receipt.pdf`,
+      headers: auth(adminToken),
+    });
+    expect(second.statusCode).toBe(200);
+
+    const audits = await adminDb.execute(
+      sql`SELECT count(*)::int AS n FROM audit_logs WHERE entity_type = 'fee_receipt' AND entity_id = ${paymentId} AND action = 'export'`,
+    );
+    expect((audits.rows[0] as { n: number }).n).toBe(2);
+  });
+
+  it('404s for an unknown payment', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/00000000-0000-0000-0000-000000000000/receipt.pdf`,
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

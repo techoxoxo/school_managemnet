@@ -2,7 +2,7 @@ import { auditLogs, type TenantDb } from '@schoolmate/db';
 import type { AuthContext } from '../plugins/auth.js';
 
 export interface AuditEntry {
-  action: 'create' | 'update' | 'delete';
+  action: 'create' | 'update' | 'delete' | 'export';
   entityType: string;
   entityId: string;
   oldValues?: unknown;

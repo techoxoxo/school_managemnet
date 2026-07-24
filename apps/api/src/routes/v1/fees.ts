@@ -6,6 +6,8 @@
  */
 import {
   academicSessions,
+  auditLogs,
+  classes,
   emitEvent,
   feeDiscounts,
   feeDues,
@@ -25,6 +27,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { writeAudit } from '../../lib/audit.js';
 import { assertFound, idParamSchema } from '../../lib/http.js';
+import { htmlToPdf } from '../../lib/pdf.js';
+import { renderReceiptHtml } from '../../lib/receipt-template.js';
 
 const frequency = z.enum(['one_time', 'monthly', 'quarterly', 'half_yearly', 'annual']);
 type Frequency = z.infer<typeof frequency>;
@@ -430,6 +434,104 @@ export async function feeRoutes(app: FastifyInstance) {
         };
       });
       return reply.status(201).send({ success: true as const, data: result });
+    },
+  );
+
+  // ── Receipt PDF: reprint with audit trail (P2-MOD-07) ───────
+  r.get(
+    '/payments/:id/receipt.pdf',
+    { config: view, schema: { tags: ['fees'], params: idParamSchema } },
+    async (request, reply) => {
+      const paymentId = request.params.id;
+      const assembled = await request.tenantDb(async (db) => {
+        const [payment] = await db
+          .select()
+          .from(feePayments)
+          .where(eq(feePayments.id, paymentId))
+          .limit(1);
+        assertFound(payment, 'Payment');
+
+        const [student] = await db
+          .select({
+            firstName: students.firstName,
+            lastName: students.lastName,
+            admissionNumber: students.admissionNumber,
+            className: classes.name,
+          })
+          .from(students)
+          .leftJoin(classes, eq(classes.id, students.currentClassId))
+          .where(eq(students.id, payment.studentId))
+          .limit(1);
+        assertFound(student, 'Student');
+
+        const lines = await db
+          .select({
+            head: feeDues.head,
+            period: feeDues.period,
+            amount: feePaymentAllocations.amount,
+          })
+          .from(feePaymentAllocations)
+          .innerJoin(feeDues, eq(feeDues.id, feePaymentAllocations.dueId))
+          .where(eq(feePaymentAllocations.paymentId, paymentId))
+          .orderBy(asc(feeDues.dueDate));
+
+        // Reprint = a receipt export was already recorded for this payment.
+        const priorRows = await db
+          .select({ n: count() })
+          .from(auditLogs)
+          .where(
+            and(
+              eq(auditLogs.entityType, 'fee_receipt'),
+              eq(auditLogs.entityId, paymentId),
+              eq(auditLogs.action, 'export'),
+            ),
+          );
+        const reprint = (priorRows[0]?.n ?? 0) > 0;
+
+        await writeAudit(db, request.auth!, {
+          action: 'export',
+          entityType: 'fee_receipt',
+          entityId: paymentId,
+          newValues: { receiptNumber: payment.receiptNumber, reprint },
+        });
+
+        return { payment, student, lines, reprint };
+      });
+
+      const html = renderReceiptHtml({
+        schoolName: request.tenant!.name,
+        receiptNumber: assembled.payment.receiptNumber,
+        paidAt: assembled.payment.paidAt,
+        method: assembled.payment.method,
+        reference: assembled.payment.reference,
+        studentName: [assembled.student.firstName, assembled.student.lastName]
+          .filter(Boolean)
+          .join(' '),
+        admissionNumber: assembled.student.admissionNumber,
+        className: assembled.student.className,
+        amount: assembled.payment.amount,
+        currency: '₹',
+        lines: assembled.lines,
+        reprint: assembled.reprint,
+      });
+
+      let pdf: Buffer;
+      try {
+        pdf = await htmlToPdf(html);
+      } catch {
+        throw new AppError(
+          ErrorCodes.INTERNAL_ERROR,
+          'PDF rendering is unavailable (Chrome could not be launched)',
+          503,
+        );
+      }
+      return reply
+        .header('content-type', 'application/pdf')
+        .header(
+          'content-disposition',
+          `inline; filename="receipt-${assembled.payment.receiptNumber}.pdf"`,
+        )
+        .send(pdf);
     },
   );
 
