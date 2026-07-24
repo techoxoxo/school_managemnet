@@ -14,6 +14,19 @@ async function seed() {
   const pool = createPool(DATABASE_URL);
   const db = createDb(pool);
 
+  // Platform super-admin (admin panel) — idempotent, independent of any tenant.
+  const platformHash = await bcrypt.hash('admin123', 10);
+  await db
+    .insert(users)
+    .values({
+      email: 'platform@schoolmate.test',
+      passwordHash: platformHash,
+      isEmailVerified: true,
+      isPlatformAdmin: true,
+    })
+    .onConflictDoNothing({ target: users.email });
+  console.log('[seed] platform admin: platform@schoolmate.test / admin123');
+
   const [tenant] = await db
     .insert(tenants)
     .values({

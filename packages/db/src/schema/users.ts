@@ -21,6 +21,8 @@ export const users = pgTable('users', {
   isPhoneVerified: boolean('is_phone_verified').notNull().default(false),
   mfaEnabled: boolean('mfa_enabled').notNull().default(false),
   mfaSecret: text('mfa_secret'),
+  /** Platform super-admin (operates across tenants via the admin panel). */
+  isPlatformAdmin: boolean('is_platform_admin').notNull().default(false),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),

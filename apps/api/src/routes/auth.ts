@@ -145,6 +145,59 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
+  // Platform super-admin login (admin panel). No tenant — authenticates a
+  // user flagged is_platform_admin and issues a super_admin session bound to
+  // no tenant (tid ''), so the token only works on /platform routes.
+  r.post(
+    '/auth/platform-login',
+    {
+      config: { tenant: false, permission: false, rateLimit: strictLimit(10) },
+      schema: { tags: ['auth'], body: credentialsBody },
+    },
+    async (request, reply) => {
+      const { email, password } = request.body;
+      const invalid = () =>
+        new AppError(ErrorCodes.INVALID_CREDENTIALS, 'Invalid email or password', 401);
+
+      const { rows } = await app.pgApp.query<DbUser & { is_platform_admin: boolean }>(
+        `SELECT id, email, password_hash, status, failed_login_attempts, locked_until,
+                is_platform_admin
+         FROM users WHERE email = $1`,
+        [email.toLowerCase()],
+      );
+      const user = rows[0];
+      if (!user || !user.password_hash || user.status !== 'active' || !user.is_platform_admin) {
+        throw invalid();
+      }
+      if (!(await bcrypt.compare(password, user.password_hash))) throw invalid();
+
+      const permissions = resolvePermissions('super_admin');
+      const { sessionId, refreshToken } = await app.sessions.create({
+        userId: user.id,
+        tenantId: '',
+        role: 'super_admin',
+        branchId: null,
+        permissions,
+      });
+      const accessToken = await reply.jwtSign({
+        sub: user.id,
+        tid: '',
+        sid: sessionId,
+        role: 'super_admin',
+      });
+      await app.pgApp.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
+
+      return {
+        success: true as const,
+        data: {
+          accessToken,
+          refreshToken,
+          user: { id: user.id, email: user.email, role: 'super_admin' as const, permissions },
+        },
+      };
+    },
+  );
+
   r.post(
     '/auth/refresh',
     {
