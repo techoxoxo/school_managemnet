@@ -1,5 +1,6 @@
 import { boolean, integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { classTypeEnum, subjectTypeEnum } from './enums.js';
+import { staffMembers } from './staff.js';
 import { academicSessions, branches, tenants } from './tenants.js';
 
 /** Tenant-scoped (RLS). Classes/grades/batches per branch (Plan §4.F). */
@@ -96,6 +97,45 @@ export const classSubjects = pgTable(
       t.classId,
       t.subjectId,
       t.academicSessionId,
+    ),
+  ],
+);
+
+/**
+ * Tenant-scoped (RLS). Which teacher teaches a subject to a class/section
+ * in a session (P1-MOD-07, Plan §4.F). `section_id` NULL = the whole class.
+ */
+export const subjectTeachers = pgTable(
+  'subject_teachers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    classId: uuid('class_id')
+      .notNull()
+      .references(() => classes.id, { onDelete: 'cascade' }),
+    sectionId: uuid('section_id').references(() => sections.id, { onDelete: 'cascade' }),
+    subjectId: uuid('subject_id')
+      .notNull()
+      .references(() => subjects.id, { onDelete: 'cascade' }),
+    academicSessionId: uuid('academic_session_id')
+      .notNull()
+      .references(() => academicSessions.id, { onDelete: 'cascade' }),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => staffMembers.id, { onDelete: 'cascade' }),
+    isPrimary: boolean('is_primary').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('subject_teachers_unique').on(
+      t.tenantId,
+      t.classId,
+      t.sectionId,
+      t.subjectId,
+      t.academicSessionId,
+      t.staffId,
     ),
   ],
 );

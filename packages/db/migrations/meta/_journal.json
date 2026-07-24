@@ -71,6 +71,20 @@
       "when": 1784747426226,
       "tag": "0009_staff-attendance-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784908154205,
+      "tag": "0010_subject-teachers",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784908154705,
+      "tag": "0011_subject-teachers-rls",
+      "breakpoints": true
     }
   ]
 }

@@ -255,6 +255,141 @@ describe('academic session CRUD (P1-MOD-05)', () => {
   });
 });
 
+describe('curriculum: class-subject mapping + teacher assignment (P1-MOD-07)', () => {
+  let branchId: string;
+  let classId: string;
+  let sectionId: string;
+  let subjectId: string;
+  let sessionId: string;
+  let staffId: string;
+  let mappingId: string;
+  let assignmentId: string;
+
+  beforeAll(async () => {
+    const post = async (url: string, payload: Record<string, unknown>) => {
+      const res = await app.inject({ method: 'POST', url, headers: auth(adminToken), payload });
+      return res.json().data;
+    };
+
+    branchId = (await post('/v1/branches', { name: 'Curriculum Campus', code: 'CURR' })).id;
+    classId = (await post('/v1/classes', { branchId, name: 'Grade 5', classType: 'middle' })).id;
+    sectionId = (await post('/v1/sections', { branchId, classId, name: 'A' })).id;
+    subjectId = (await post('/v1/subjects', { branchId, name: 'Science', code: 'SCI5' })).id;
+    sessionId = (
+      await post('/v1/academic-sessions', {
+        branchId,
+        name: '2027-2028',
+        startDate: '2027-04-01',
+        endDate: '2028-03-31',
+      })
+    ).id;
+    staffId = (
+      await post('/v1/staff', { branchId, employeeId: `EMP-${suffix}`, firstName: 'Rita' })
+    ).id;
+  });
+
+  it('maps a subject to a class for a session → 201 + audit', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/class-subjects',
+      headers: auth(adminToken),
+      payload: { classId, subjectId, academicSessionId: sessionId, weeklyPeriods: 5 },
+    });
+    expect(res.statusCode).toBe(201);
+    mappingId = res.json().data.id;
+
+    const [audit] = (
+      await adminDb.execute(
+        sql`SELECT action, entity_type FROM audit_logs
+            WHERE tenant_id = ${tenantId} AND entity_id = ${mappingId}`,
+      )
+    ).rows as Array<{ action: string; entity_type: string }>;
+    expect(audit).toMatchObject({ action: 'create', entity_type: 'class_subject' });
+  });
+
+  it('rejects a duplicate mapping → 409 CONFLICT', async () => {
+    const dup = await app.inject({
+      method: 'POST',
+      url: '/v1/class-subjects',
+      headers: auth(adminToken),
+      payload: { classId, subjectId, academicSessionId: sessionId },
+    });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().error.code).toBe('CONFLICT');
+  });
+
+  it('lists class subjects joined with subject detail', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/class-subjects?classId=${classId}`,
+      headers: auth(teacherToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+    expect(res.json().data[0].subject.code).toBe('SCI5');
+  });
+
+  it('404 mapping a subject to a non-existent class', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/class-subjects',
+      headers: auth(adminToken),
+      payload: {
+        classId: '00000000-0000-0000-0000-000000000000',
+        subjectId,
+        academicSessionId: sessionId,
+      },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('assigns a teacher to the subject → 201 + joined listing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/subject-teachers',
+      headers: auth(adminToken),
+      payload: { classId, sectionId, subjectId, academicSessionId: sessionId, staffId },
+    });
+    expect(res.statusCode).toBe(201);
+    assignmentId = res.json().data.id;
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/v1/subject-teachers?classId=${classId}`,
+      headers: auth(teacherToken),
+    });
+    expect(list.json().data).toHaveLength(1);
+    expect(list.json().data[0].teacher.firstName).toBe('Rita');
+    expect(list.json().data[0].subject.code).toBe('SCI5');
+  });
+
+  it('teacher (subject.view only) cannot assign → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/subject-teachers',
+      headers: auth(teacherToken),
+      payload: { classId, subjectId, academicSessionId: sessionId, staffId },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('deletes the assignment and the mapping', async () => {
+    const a = await app.inject({
+      method: 'DELETE',
+      url: `/v1/subject-teachers/${assignmentId}`,
+      headers: auth(adminToken),
+    });
+    expect(a.statusCode).toBe(200);
+    const m = await app.inject({
+      method: 'DELETE',
+      url: `/v1/class-subjects/${mappingId}`,
+      headers: auth(adminToken),
+    });
+    expect(m.statusCode).toBe(200);
+  });
+});
+
 describe('cross-tenant isolation via API (RLS end-to-end)', () => {
   it("other tenant sees none of this tenant's branches", async () => {
     // A branch created under SLUG must be invisible when querying OTHER_SLUG.

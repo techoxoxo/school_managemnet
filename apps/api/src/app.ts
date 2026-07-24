@@ -21,6 +21,7 @@ import { academicSessionRoutes } from './routes/v1/academic-sessions.js';
 import { branchRoutes } from './routes/v1/branches.js';
 import { attendanceRoutes } from './routes/v1/attendance.js';
 import { classRoutes } from './routes/v1/classes.js';
+import { curriculumRoutes } from './routes/v1/curriculum.js';
 import { parentRoutes } from './routes/v1/parents.js';
 import { sectionRoutes } from './routes/v1/sections.js';
 import { staffRoutes } from './routes/v1/staff.js';
@@ -85,6 +86,7 @@ export async function buildApp() {
   await app.register(classRoutes, { prefix: '/v1' });
   await app.register(sectionRoutes, { prefix: '/v1' });
   await app.register(subjectRoutes, { prefix: '/v1' });
+  await app.register(curriculumRoutes, { prefix: '/v1' });
   await app.register(studentRoutes, { prefix: '/v1' });
   await app.register(parentRoutes, { prefix: '/v1' });
   await app.register(staffRoutes, { prefix: '/v1' });
