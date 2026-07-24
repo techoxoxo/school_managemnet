@@ -41,7 +41,7 @@ Tracks: `INF` infrastructure · `DB` database · `API` backend · `WEB` frontend
 | ------------- | ------------------------------------------ | ----- | ---- | ------- |
 | Phase 0       | Foundation & scaffolding                   | 28    | 27   | ✅ (G1) |
 | Phase 1       | Core academic MVP                          | 33    | 33   | ✅ (G2) |
-| Phase 2       | Fees & examinations                        | 30    | 0    | ⬜      |
+| Phase 2       | Fees & examinations                        | 30    | 1    | 🟨      |
 | Phase 3       | Operations (timetable, HR, library, comms) | 28    | 0    | ⬜      |
 | Phase 4       | Extended modules & portals                 | 26    | 0    | ⬜      |
 | Phase 5       | Advanced & polish                          | 22    | 0    | ⬜      |
