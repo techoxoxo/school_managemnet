@@ -24,6 +24,7 @@ import { attendanceRoutes } from './routes/v1/attendance.js';
 import { classRoutes } from './routes/v1/classes.js';
 import { curriculumRoutes } from './routes/v1/curriculum.js';
 import { dashboardRoutes } from './routes/v1/dashboard.js';
+import { feeRoutes } from './routes/v1/fees.js';
 import { importRoutes } from './routes/v1/imports.js';
 import { parentRoutes } from './routes/v1/parents.js';
 import { platformRoutes } from './routes/v1/platform.js';
@@ -104,6 +105,7 @@ export async function buildApp() {
   await app.register(dashboardRoutes, { prefix: '/v1' });
   await app.register(tenantConfigRoutes, { prefix: '/v1' });
   await app.register(importRoutes, { prefix: '/v1' });
+  await app.register(feeRoutes, { prefix: '/v1' });
   await app.register(platformRoutes);
 
   return app;

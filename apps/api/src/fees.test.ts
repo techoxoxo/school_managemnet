@@ -1,0 +1,243 @@
+/**
+ * Fee management (P2-MOD-03/04/06) — live Postgres + Redis.
+ * Structure → allocate (with mid-year pro-ration) → outstanding view →
+ * collect (FIFO allocation, receipts, overpayment/advance).
+ */
+import { createDb, createPool, tenants, users, userTenantRoles } from '@schoolmate/db';
+import bcrypt from 'bcryptjs';
+import { sql } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildApp } from './app.js';
+
+const ADMIN_URL =
+  process.env.DATABASE_URL ?? 'postgres://schoolmate:schoolmate_dev@localhost:5433/schoolmate';
+
+let app: FastifyInstance;
+const adminPool = createPool(ADMIN_URL);
+const adminDb = createDb(adminPool);
+
+const suffix = Date.now().toString(36);
+const SLUG = `fee-${suffix}`;
+const ADMIN_EMAIL = `feeadmin-${suffix}@test.dev`;
+const TEACHER_EMAIL = `feeteacher-${suffix}@test.dev`;
+const PASSWORD = 'pw-12345678';
+
+let tenantId: string;
+let branchId: string;
+let sessionId: string;
+let classId: string;
+let studentA: string;
+let adminToken: string;
+let teacherToken: string;
+
+const auth = (t: string) => ({ 'x-tenant-slug': SLUG, authorization: `Bearer ${t}` });
+const login = async (email: string) =>
+  (
+    await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      headers: { 'x-tenant-slug': SLUG },
+      payload: { email, password: PASSWORD },
+    })
+  ).json().data.accessToken as string;
+
+beforeAll(async () => {
+  const [t] = await adminDb
+    .insert(tenants)
+    .values({ name: 'Fee Test', slug: SLUG, subscriptionStatus: 'active' })
+    .returning();
+  tenantId = t!.id;
+  const passwordHash = await bcrypt.hash(PASSWORD, 10);
+  const ins = await adminDb
+    .insert(users)
+    .values([
+      { email: ADMIN_EMAIL, passwordHash, status: 'active' },
+      { email: TEACHER_EMAIL, passwordHash, status: 'active' },
+    ])
+    .returning();
+  await adminDb.insert(userTenantRoles).values([
+    { userId: ins[0]!.id, tenantId, role: 'tenant_admin', isPrimaryRole: true },
+    { userId: ins[1]!.id, tenantId, role: 'teacher', isPrimaryRole: true },
+  ]);
+
+  app = await buildApp();
+  await app.ready();
+  adminToken = await login(ADMIN_EMAIL);
+  teacherToken = await login(TEACHER_EMAIL);
+
+  branchId = (
+    await app.inject({
+      method: 'POST',
+      url: '/v1/branches',
+      headers: auth(adminToken),
+      payload: { name: 'Main', code: 'MAIN' },
+    })
+  ).json().data.id;
+  sessionId = (
+    await app.inject({
+      method: 'POST',
+      url: '/v1/academic-sessions',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        name: '2026-2027',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+        isCurrent: true,
+      },
+    })
+  ).json().data.id;
+  classId = (
+    await app.inject({
+      method: 'POST',
+      url: '/v1/classes',
+      headers: auth(adminToken),
+      payload: { branchId, name: 'Grade 1', classType: 'primary' },
+    })
+  ).json().data.id;
+  studentA = (
+    await app.inject({
+      method: 'POST',
+      url: '/v1/students',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        admissionNumber: `FA-${suffix}`,
+        firstName: 'Full',
+        currentClassId: classId,
+        admissionDate: '2026-04-01',
+      },
+    })
+  ).json().data.id;
+});
+
+afterAll(async () => {
+  await adminDb.execute(sql`DELETE FROM tenants WHERE id = ${tenantId}`);
+  await adminDb.execute(sql`DELETE FROM users WHERE email IN (${ADMIN_EMAIL}, ${TEACHER_EMAIL})`);
+  await app.close();
+  await adminPool.end();
+});
+
+let structureId: string;
+
+describe('fee structures + allocation (P2-MOD-03/04)', () => {
+  it('creates a structure with items', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/fee-structures',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        academicSessionId: sessionId,
+        classId,
+        name: 'Grade 1 · 2026-27',
+        items: [
+          { head: 'Tuition', amount: 1000, frequency: 'monthly' },
+          { head: 'Admission', amount: 5000, frequency: 'one_time' },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    structureId = res.json().data.id;
+  });
+
+  it('allocates dues to enrolled students (12 monthly + 1 one-time)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ students: 1, duesCreated: 13 });
+  });
+
+  it('re-allocation is idempotent (no duplicate dues)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+    expect(res.json().data.duesCreated).toBe(0);
+  });
+
+  it('pro-rates a mid-year admission (only remaining monthly periods)', async () => {
+    // Admitted in October 2026 → Oct..Mar = 6 monthly + 1 one-time = 7 dues.
+    await app.inject({
+      method: 'POST',
+      url: '/v1/students',
+      headers: auth(adminToken),
+      payload: {
+        branchId,
+        admissionNumber: `FB-${suffix}`,
+        firstName: 'MidYear',
+        currentClassId: classId,
+        admissionDate: '2026-10-15',
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/fee-structures/${structureId}/allocate`,
+      headers: auth(adminToken),
+    });
+    expect(res.json().data.duesCreated).toBe(7);
+  });
+});
+
+describe('fee collection desk (P2-MOD-06)', () => {
+  it('shows the outstanding total (12×1000 + 5000 = 17000)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentA}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.totalOutstanding).toBe(17000);
+  });
+
+  it('collects a partial payment FIFO and issues a receipt', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${studentA}/payments`,
+      headers: auth(adminToken),
+      payload: { amount: 6000, method: 'cash' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.allocated).toBe(6000);
+    expect(res.json().data.payment.receiptNumber).toMatch(/^R-\d{4}-\d{6}$/);
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentA}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(11000);
+  });
+
+  it('handles overpayment as advance and clears the balance', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${studentA}/payments`,
+      headers: auth(adminToken),
+      payload: { amount: 11500, method: 'upi', reference: 'UPI123' },
+    });
+    expect(res.json().data).toMatchObject({ allocated: 11000, advance: 500 });
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/students/${studentA}/fees`,
+      headers: auth(adminToken),
+    });
+    expect(after.json().data.totalOutstanding).toBe(0);
+  });
+
+  it('a teacher (no fee.collect) cannot collect → 403', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/students/${studentA}/payments`,
+      headers: auth(teacherToken),
+      payload: { amount: 100 },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
