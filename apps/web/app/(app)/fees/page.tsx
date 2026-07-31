@@ -1,3 +1,5 @@
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/card';
 import { FeeCollection } from './fee-collection';
 
@@ -13,7 +15,11 @@ export default function FeesPage() {
       <PageHeader
         title="Fee Collection"
         description="Search a student, review outstanding dues, and collect payments."
-      />
+      >
+        <Link href="/fees/structures">
+          <Button variant="secondary">Fee structures</Button>
+        </Link>
+      </PageHeader>
       <FeeCollection />
     </div>
   );

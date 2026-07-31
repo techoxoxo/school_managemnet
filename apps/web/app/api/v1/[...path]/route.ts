@@ -12,18 +12,21 @@ async function forward(request: NextRequest, path: string[]) {
   const token = request.cookies.get('access_token')?.value;
   const slug = request.cookies.get('tenant_slug')?.value;
   const url = `${API_URL}/v1/${path.join('/')}${request.nextUrl.search}`;
-  const hasBody = request.method !== 'GET' && request.method !== 'DELETE';
+  // Read the body for methods that can carry one, then only forward a
+  // content-type when it is actually non-empty — Fastify rejects an empty
+  // application/json body (e.g. a bodyless POST like /allocate, or a DELETE).
+  const rawBody =
+    request.method === 'GET' || request.method === 'DELETE' ? '' : await request.text();
+  const hasBody = rawBody.length > 0;
 
   const apiRes = await fetch(url, {
     method: request.method,
     headers: {
-      // Only send content-type with an actual body — Fastify rejects an empty
-      // application/json body (e.g. bodyless DELETE).
       ...(hasBody ? { 'content-type': 'application/json' } : {}),
       ...(slug ? { 'x-tenant-slug': slug } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    ...(hasBody ? { body: await request.text() } : {}),
+    ...(hasBody ? { body: rawBody } : {}),
     cache: 'no-store',
   });
 
