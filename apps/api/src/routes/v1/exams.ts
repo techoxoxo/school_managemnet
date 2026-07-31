@@ -28,10 +28,117 @@ import { and, asc, count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import type { TenantDb } from '@schoolmate/db';
 import { writeAudit } from '../../lib/audit.js';
 import { assertFound, idParamSchema } from '../../lib/http.js';
 import { htmlToPdf } from '../../lib/pdf.js';
-import { renderReportCardHtml } from '../../lib/report-card-template.js';
+import { putObject } from '../../lib/storage.js';
+import {
+  renderReportCardHtml,
+  type ReportCardData,
+  type ReportCardTemplate,
+} from '../../lib/report-card-template.js';
+
+/** Deterministic S3 key for a cached report-card PDF (P2-MOD-20). */
+export function reportCardKey(tenantId: string, examId: string, studentId: string): string {
+  return `tenants/${tenantId}/report-cards/${examId}/${studentId}.pdf`;
+}
+
+/**
+ * Assemble report-card render data for one or all students of an exam. Shared
+ * by the on-demand PDF endpoint (P2-MOD-18) and bulk generation (P2-MOD-20).
+ * Returns the exam name plus one entry per report card (optionally only the
+ * published ones), each carrying the studentId and the template payload.
+ */
+async function assembleReportCards(
+  db: TenantDb,
+  schoolName: string,
+  examId: string,
+  opts: { studentId?: string; publishedOnly?: boolean } = {},
+): Promise<{ examName: string; cards: Array<{ studentId: string; data: ReportCardData }> }> {
+  const [exam] = await db
+    .select({ name: exams.name })
+    .from(exams)
+    .where(eq(exams.id, examId))
+    .limit(1);
+  assertFound(exam, 'Exam');
+
+  const cardFilters = [
+    eq(reportCards.examId, examId),
+    opts.studentId ? eq(reportCards.studentId, opts.studentId) : undefined,
+    opts.publishedOnly ? isNotNull(reportCards.publishedAt) : undefined,
+  ].filter((f): f is NonNullable<typeof f> => f !== undefined);
+  const cards = await db
+    .select()
+    .from(reportCards)
+    .where(and(...cardFilters));
+  if (cards.length === 0) return { examName: exam.name, cards: [] };
+
+  const studentIds = cards.map((c) => c.studentId);
+  const roster = await db
+    .select({
+      id: students.id,
+      firstName: students.firstName,
+      lastName: students.lastName,
+      admissionNumber: students.admissionNumber,
+      className: classes.name,
+    })
+    .from(students)
+    .leftJoin(classes, eq(classes.id, students.currentClassId))
+    .where(inArray(students.id, studentIds));
+  const studentById = new Map(roster.map((s) => [s.id, s]));
+
+  const subjectRows = await db
+    .select({
+      studentId: examResults.studentId,
+      subject: subjects.name,
+      marks: examResults.marksObtained,
+      maxMarks: examSubjects.maxMarks,
+      grade: examResults.grade,
+      isAbsent: examResults.isAbsent,
+      isExempt: examResults.isExempt,
+    })
+    .from(examResults)
+    .innerJoin(examSubjects, eq(examSubjects.id, examResults.examSubjectId))
+    .innerJoin(subjects, eq(subjects.id, examSubjects.subjectId))
+    .where(and(eq(examResults.examId, examId), inArray(examResults.studentId, studentIds)))
+    .orderBy(asc(subjects.name));
+  const subjectsByStudent = new Map<string, typeof subjectRows>();
+  for (const row of subjectRows) {
+    const arr = subjectsByStudent.get(row.studentId) ?? [];
+    arr.push(row);
+    subjectsByStudent.set(row.studentId, arr);
+  }
+
+  const out = cards.map((card) => {
+    const student = studentById.get(card.studentId);
+    const rows = subjectsByStudent.get(card.studentId) ?? [];
+    const data: ReportCardData = {
+      schoolName,
+      examName: exam.name,
+      studentName: [student?.firstName, student?.lastName].filter(Boolean).join(' '),
+      admissionNumber: student?.admissionNumber ?? '',
+      className: student?.className ?? null,
+      subjects: rows.map((s) => ({
+        subject: s.subject,
+        marks: s.isAbsent || s.isExempt ? null : s.marks,
+        maxMarks: s.maxMarks,
+        grade: s.grade,
+        status: s.isExempt ? 'exempt' : s.isAbsent ? 'absent' : 'ok',
+      })),
+      totalMarks: card.totalMarks,
+      maxMarks: card.maxMarks,
+      percentage: card.percentageBp == null ? null : card.percentageBp / 100,
+      grade: card.grade,
+      rank: card.rank,
+    };
+    return { studentId: card.studentId, data };
+  });
+  return { examName: exam.name, cards: out };
+}
+
+const pickTemplate = (configured: unknown, override?: ReportCardTemplate): ReportCardTemplate =>
+  override ?? (configured === 'cbse' ? 'cbse' : 'generic');
 
 const scaleSchema = z.array(
   z.object({
@@ -1018,85 +1125,19 @@ export async function examRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: examId, studentId } = request.params;
-      const assembled = await request.tenantDb(async (db) => {
-        const [card] = await db
-          .select()
-          .from(reportCards)
-          .where(and(eq(reportCards.examId, examId), eq(reportCards.studentId, studentId)))
-          .limit(1);
-        assertFound(card, 'Report card');
-
-        const [exam] = await db
-          .select({ name: exams.name })
-          .from(exams)
-          .where(eq(exams.id, examId))
-          .limit(1);
-        assertFound(exam, 'Exam');
-
-        const [student] = await db
-          .select({
-            firstName: students.firstName,
-            lastName: students.lastName,
-            admissionNumber: students.admissionNumber,
-            className: classes.name,
-          })
-          .from(students)
-          .leftJoin(classes, eq(classes.id, students.currentClassId))
-          .where(eq(students.id, studentId))
-          .limit(1);
-        assertFound(student, 'Student');
-
-        const subjectRows = await db
-          .select({
-            subject: subjects.name,
-            marks: examResults.marksObtained,
-            maxMarks: examSubjects.maxMarks,
-            grade: examResults.grade,
-            isAbsent: examResults.isAbsent,
-            isExempt: examResults.isExempt,
-          })
-          .from(examResults)
-          .innerJoin(examSubjects, eq(examSubjects.id, examResults.examSubjectId))
-          .innerJoin(subjects, eq(subjects.id, examSubjects.subjectId))
-          .where(and(eq(examResults.examId, examId), eq(examResults.studentId, studentId)))
-          .orderBy(asc(subjects.name));
-
-        return { card, exam, student, subjectRows };
-      });
-
-      // Template: explicit query override → tenant config → generic default.
-      const configured = request.tenant!.config?.reportCardTemplate;
-      const template = request.query.template ?? (configured === 'cbse' ? 'cbse' : 'generic');
-
-      const html = renderReportCardHtml(
-        {
-          schoolName: request.tenant!.name,
-          examName: assembled.exam.name,
-          studentName: [assembled.student.firstName, assembled.student.lastName]
-            .filter(Boolean)
-            .join(' '),
-          admissionNumber: assembled.student.admissionNumber,
-          className: assembled.student.className,
-          subjects: assembled.subjectRows.map((s) => ({
-            subject: s.subject,
-            marks: s.isAbsent || s.isExempt ? null : s.marks,
-            maxMarks: s.maxMarks,
-            grade: s.grade,
-            status: s.isExempt ? 'exempt' : s.isAbsent ? 'absent' : 'ok',
-          })),
-          totalMarks: assembled.card.totalMarks,
-          maxMarks: assembled.card.maxMarks,
-          percentage:
-            assembled.card.percentageBp == null ? null : assembled.card.percentageBp / 100,
-          grade: assembled.card.grade,
-          rank: assembled.card.rank,
-        },
-        template,
+      const assembled = await request.tenantDb((db) =>
+        assembleReportCards(db, request.tenant!.name, examId, { studentId }),
       );
+      const card = assembled.cards[0];
+      assertFound(card, 'Report card');
 
+      const template = pickTemplate(
+        request.tenant!.config?.reportCardTemplate,
+        request.query.template,
+      );
       let pdf: Buffer;
       try {
-        pdf = await htmlToPdf(html);
+        pdf = await htmlToPdf(renderReportCardHtml(card.data, template));
       } catch {
         throw new AppError(
           ErrorCodes.INTERNAL_ERROR,
@@ -1108,6 +1149,90 @@ export async function examRoutes(app: FastifyInstance) {
         .header('content-type', 'application/pdf')
         .header('content-disposition', 'inline; filename="report-card.pdf"')
         .send(pdf);
+    },
+  );
+
+  // ── Bulk report generation (P2-MOD-20): pre-render published cards to S3 ──
+  // Synchronous for now (loops htmlToPdf); moving this to the outbox worker is
+  // a future optimization once PDF rendering is extracted into a shared package.
+  r.post(
+    '/exams/:id/report-cards/generate',
+    {
+      config: manage,
+      schema: {
+        tags: ['exams'],
+        params: idParamSchema,
+        querystring: z.object({ template: z.enum(['generic', 'cbse']).optional() }),
+      },
+    },
+    async (request) => {
+      const examId = request.params.id;
+      const tenantId = request.tenant!.id;
+      const template = pickTemplate(
+        request.tenant!.config?.reportCardTemplate,
+        request.query.template,
+      );
+
+      // Only published cards are cached — this warms the result-day cache.
+      const assembled = await request.tenantDb((db) =>
+        assembleReportCards(db, request.tenant!.name, examId, { publishedOnly: true }),
+      );
+      if (assembled.cards.length === 0) {
+        throw new AppError(
+          ErrorCodes.CONFLICT,
+          'No published report cards to generate — publish results first',
+          409,
+        );
+      }
+
+      let pdf0: Buffer;
+      try {
+        pdf0 = await htmlToPdf(renderReportCardHtml(assembled.cards[0]!.data, template));
+      } catch {
+        throw new AppError(
+          ErrorCodes.INTERNAL_ERROR,
+          'PDF rendering is unavailable (Chrome could not be launched)',
+          503,
+        );
+      }
+      const manifest: Array<{ studentId: string; key: string }> = [];
+      const first = assembled.cards[0]!;
+      const key0 = reportCardKey(tenantId, examId, first.studentId);
+      await putObject(key0, pdf0, 'application/pdf');
+      manifest.push({ studentId: first.studentId, key: key0 });
+
+      for (const c of assembled.cards.slice(1)) {
+        const pdf = await htmlToPdf(renderReportCardHtml(c.data, template));
+        const key = reportCardKey(tenantId, examId, c.studentId);
+        await putObject(key, pdf, 'application/pdf');
+        manifest.push({ studentId: c.studentId, key });
+      }
+
+      // Batch notify + audit in one tenant transaction.
+      await request.tenantDb(async (db) => {
+        await writeAudit(db, request.auth!, {
+          action: 'export',
+          entityType: 'report_cards_batch',
+          entityId: examId,
+          newValues: { generated: manifest.length, template },
+        });
+        await emitEvent(db, {
+          tenantId,
+          type: EVENT_TYPES.REPORT_CARDS_GENERATED,
+          aggregateType: 'exam',
+          aggregateId: examId,
+          payload: {
+            examId,
+            generated: manifest.length,
+            students: manifest.map((m) => m.studentId),
+          },
+        });
+      });
+
+      return {
+        success: true as const,
+        data: { generated: manifest.length, template, cards: manifest },
+      };
     },
   );
 }

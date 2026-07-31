@@ -10,6 +10,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -65,6 +66,35 @@ export async function presignDownload(key: string, downloadName?: string): Promi
     }),
     { expiresIn: EXPIRES },
   );
+}
+
+/** Server-side upload of raw bytes (e.g. a rendered PDF). */
+export async function putObject(
+  key: string,
+  body: Buffer,
+  contentType = 'application/octet-stream',
+): Promise<void> {
+  await ensureBucket();
+  await client().send(
+    new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: key, Body: body, ContentType: contentType }),
+  );
+}
+
+/** True when an object exists at the key (used to serve cached PDFs). */
+export async function objectExists(key: string): Promise<boolean> {
+  try {
+    await client().send(new HeadObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch an object's bytes back into memory. */
+export async function getObjectBytes(key: string): Promise<Buffer> {
+  const res = await client().send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+  const bytes = await res.Body!.transformToByteArray();
+  return Buffer.from(bytes);
 }
 
 export async function deleteObject(key: string): Promise<void> {

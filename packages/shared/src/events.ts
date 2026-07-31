@@ -16,6 +16,7 @@ export const EVENT_TYPES = {
   FEE_PAYMENT_RECEIVED: 'fee.payment.received',
   FEE_PAYMENT_OVERDUE: 'fee.payment.overdue',
   EXAM_RESULTS_PUBLISHED: 'exam.results.published',
+  REPORT_CARDS_GENERATED: 'exam.report_cards.generated',
   ANNOUNCEMENT_PUBLISHED: 'announcement.published',
 } as const;
 

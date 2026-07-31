@@ -9,11 +9,17 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { closeBrowser } from './lib/pdf.js';
+import { getObjectBytes } from './lib/storage.js';
 
 const CHROME_PATH =
   process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const CHROME_UP = existsSync(CHROME_PATH);
 if (!CHROME_UP) console.warn('[exams.test] Chrome not found — skipping report-card PDF test');
+
+const MINIO_UP = await fetch('http://127.0.0.1:9000/minio/health/live')
+  .then((r) => r.ok)
+  .catch(() => false);
+if (!MINIO_UP) console.warn('[exams.test] MinIO not reachable — skipping bulk-generation test');
 
 const ADMIN_URL =
   process.env.DATABASE_URL ?? 'postgres://schoolmate:schoolmate_dev@localhost:5433/schoolmate';
@@ -770,5 +776,88 @@ describe.skipIf(!CHROME_UP)('report-card PDF (P2-MOD-18/19)', () => {
       headers: auth(),
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe.skipIf(!CHROME_UP || !MINIO_UP)('bulk report generation (P2-MOD-20)', () => {
+  const mk = async (url: string, payload?: Record<string, unknown>) => {
+    const res = await app.inject({
+      method: 'POST',
+      url,
+      headers: auth(),
+      ...(payload ? { payload } : {}),
+    });
+    return res.json().data;
+  };
+
+  it('renders all published cards to S3 and returns a manifest', { timeout: 60000 }, async () => {
+    const session = (
+      await mk('/v1/academic-sessions', {
+        branchId,
+        name: 'BULK-2026',
+        startDate: '2026-04-01',
+        endDate: '2027-03-31',
+      })
+    ).id;
+    const klass = (await mk('/v1/classes', { branchId, name: 'BULK-9', classType: 'secondary' }))
+      .id;
+    const subA = (await mk('/v1/subjects', { branchId, name: 'Geo', code: `BG-${suffix}` })).id;
+    const grading = (await mk('/v1/grading-systems/from-preset', { branchId, preset: 'cbse' })).id;
+    const exam = (
+      await mk('/v1/exams', {
+        branchId,
+        academicSessionId: session,
+        classId: klass,
+        gradingSystemId: grading,
+        name: 'Bulkable',
+      })
+    ).id;
+    const es = (
+      await mk(`/v1/exams/${exam}/subjects`, {
+        subjectId: subA,
+        examDate: '2026-12-15',
+        maxMarks: 100,
+      })
+    ).id;
+    const s1 = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `BLK1-${suffix}`,
+        firstName: 'Bea',
+        currentClassId: klass,
+      })
+    ).id;
+    const s2 = (
+      await mk('/v1/students', {
+        branchId,
+        admissionNumber: `BLK2-${suffix}`,
+        firstName: 'Cal',
+        currentClassId: klass,
+      })
+    ).id;
+    await mk(`/v1/exam-subjects/${es}/marks`, {
+      entries: [
+        { studentId: s1, marksObtained: 92 },
+        { studentId: s2, marksObtained: 74 },
+      ],
+    });
+    await mk(`/v1/exams/${exam}/compute`, {});
+
+    // Before publishing there is nothing to cache → 409.
+    const early = await app.inject({
+      method: 'POST',
+      url: `/v1/exams/${exam}/report-cards/generate`,
+      headers: auth(),
+    });
+    expect(early.statusCode).toBe(409);
+
+    await mk(`/v1/exams/${exam}/publish`, {});
+    const gen = await mk(`/v1/exams/${exam}/report-cards/generate`);
+    expect(gen.generated).toBe(2);
+    expect(gen.cards).toHaveLength(2);
+
+    // The cached objects are real PDFs fetched back from S3.
+    const bytes = await getObjectBytes(gen.cards[0].key);
+    expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   });
 });
