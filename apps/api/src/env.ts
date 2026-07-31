@@ -21,6 +21,15 @@ export const env = parseEnv({
   S3_BUCKET: z.string().default('schoolmate-docs'),
   /** Chrome/Chromium executable for PDF rendering (P2-MOD-18, puppeteer-core). */
   CHROME_PATH: z.string().default('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+  /**
+   * Razorpay payment gateway (P2-MOD-08). Empty by default → the API runs in
+   * "manual" mode: it records local orders but makes no live gateway calls, and
+   * the webhook returns 503 (no secret to verify signatures against). Fill these
+   * with sandbox/live credentials to enable real order creation + webhooks.
+   */
+  RAZORPAY_KEY_ID: z.string().default(''),
+  RAZORPAY_KEY_SECRET: z.string().default(''),
+  RAZORPAY_WEBHOOK_SECRET: z.string().default(''),
   /** Base domain for subdomain → tenant resolution (springfield.<BASE_DOMAIN>). */
   BASE_DOMAIN: z.string().default('localhost'),
   /** Seconds a slug → tenant lookup stays cached in Redis. */

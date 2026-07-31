@@ -12,6 +12,7 @@ import {
   feeDiscounts,
   feeDues,
   feePaymentAllocations,
+  feePaymentOrders,
   feePayments,
   feeStructureItems,
   feeStructures,
@@ -25,9 +26,12 @@ import type { TenantDb } from '@schoolmate/db';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import { env } from '../../env.js';
 import { writeAudit } from '../../lib/audit.js';
+import { applyPaymentFifo } from '../../lib/fee-collection.js';
 import { assertFound, idParamSchema } from '../../lib/http.js';
 import { htmlToPdf } from '../../lib/pdf.js';
+import { createRazorpayOrder } from '../../lib/razorpay.js';
 import { renderReceiptHtml } from '../../lib/receipt-template.js';
 
 const frequency = z.enum(['one_time', 'monthly', 'quarterly', 'half_yearly', 'annual']);
@@ -355,85 +359,103 @@ export async function feeRoutes(app: FastifyInstance) {
           .limit(1);
         assertFound(student, 'Student');
 
-        // FIFO: apply the payment to the oldest unpaid dues first.
-        const dues = await db
-          .select()
-          .from(feeDues)
-          .where(eq(feeDues.studentId, request.params.id))
-          .orderBy(asc(feeDues.dueDate));
-        let remaining = amount;
-        let allocated = 0;
-        const applied: Array<{ dueId: string; amount: number }> = [];
-        for (const d of dues) {
-          if (remaining <= 0) break;
-          const owed = outstanding(d.amountDue, d.amountPaid, d.discountAmount);
-          if (owed <= 0) continue;
-          const pay = Math.min(owed, remaining);
-          const nextPaid = d.amountPaid + pay;
-          await db
-            .update(feeDues)
-            .set({
-              amountPaid: nextPaid,
-              status: dueStatus(d.amountDue, nextPaid, d.discountAmount),
-              updatedAt: new Date(),
-            })
-            .where(eq(feeDues.id, d.id));
-          remaining -= pay;
-          allocated += pay;
-          applied.push({ dueId: d.id, amount: pay });
-        }
-
-        // Receipt number: R-<year>-<zero-padded per-tenant sequence>.
-        const countRows = await db.select({ n: count() }).from(feePayments);
-        const seq = (countRows[0]?.n ?? 0) + 1;
-        const receiptNumber = `R-${new Date().getUTCFullYear()}-${String(seq).padStart(6, '0')}`;
-
-        const [payment] = await db
-          .insert(feePayments)
-          .values({
-            tenantId: request.tenant!.id,
-            studentId: request.params.id,
-            amount,
-            method: method ?? 'cash',
-            reference: reference ?? null,
-            receiptNumber,
-            collectedBy: request.auth!.userId,
-            remarks: remarks ?? null,
-          })
-          .returning();
-
-        if (applied.length) {
-          await db.insert(feePaymentAllocations).values(
-            applied.map((a) => ({
-              tenantId: request.tenant!.id,
-              paymentId: payment!.id,
-              dueId: a.dueId,
-              amount: a.amount,
-            })),
-          );
-        }
+        const res = await applyPaymentFifo(db, {
+          tenantId: request.tenant!.id,
+          studentId: request.params.id,
+          amount,
+          method: method ?? 'cash',
+          reference: reference ?? null,
+          remarks: remarks ?? null,
+          collectedBy: request.auth!.userId,
+        });
 
         await writeAudit(db, request.auth!, {
           action: 'create',
           entityType: 'fee_payment',
-          entityId: payment!.id,
-          newValues: { amount, allocated, receiptNumber },
+          entityId: res.payment.id,
+          newValues: { amount, allocated: res.allocated, receiptNumber: res.payment.receiptNumber },
         });
         await emitEvent(db, {
           tenantId: request.tenant!.id,
           type: EVENT_TYPES.FEE_PAYMENT_RECEIVED,
           aggregateType: 'fee_payment',
-          aggregateId: payment!.id,
-          payload: { studentId: request.params.id, amount, receiptNumber },
+          aggregateId: res.payment.id,
+          payload: {
+            studentId: request.params.id,
+            amount,
+            receiptNumber: res.payment.receiptNumber,
+          },
         });
-
-        return {
-          payment: payment!,
-          allocated,
-          advance: amount - allocated, // unallocated overpayment (credit)
-        };
+        return res;
       });
       return reply.status(201).send({ success: true as const, data: result });
+    },
+  );
+
+  // ── Payment-gateway orders (P2-MOD-08): create an order the payer settles ──
+  r.post(
+    '/students/:id/payment-orders',
+    {
+      config: collect,
+      schema: {
+        tags: ['fees'],
+        params: idParamSchema,
+        body: z.object({
+          amount: z.number().int().min(1),
+          currency: z.string().length(3).optional(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { amount } = request.body;
+      const currency = request.body.currency ?? 'INR';
+      const tenantId = request.tenant!.id;
+
+      const created = await request.tenantDb(async (db) => {
+        const [student] = await db
+          .select({ id: students.id })
+          .from(students)
+          .where(eq(students.id, request.params.id))
+          .limit(1);
+        assertFound(student, 'Student');
+
+        // Live order creation happens at the gateway when keys are configured;
+        // otherwise a local placeholder id keeps the manual/dev flow working.
+        const notes = { tenantId, studentId: request.params.id };
+        const providerOrderId = await createRazorpayOrder({ amount, currency, notes });
+
+        const [order] = await db
+          .insert(feePaymentOrders)
+          .values({
+            tenantId,
+            studentId: request.params.id,
+            amount,
+            currency,
+            provider: 'razorpay',
+            providerOrderId,
+            notes,
+          })
+          .returning();
+
+        await writeAudit(db, request.auth!, {
+          action: 'create',
+          entityType: 'fee_payment_order',
+          entityId: order!.id,
+          newValues: { amount, currency, providerOrderId },
+        });
+        return order!;
+      });
+
+      return reply.status(201).send({
+        success: true as const,
+        data: {
+          orderId: created.providerOrderId,
+          localOrderId: created.id,
+          amount: created.amount,
+          currency: created.currency,
+          keyId: env.RAZORPAY_KEY_ID, // '' in manual mode → client shows a stub
+        },
+      });
     },
   );
 

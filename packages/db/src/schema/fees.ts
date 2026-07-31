@@ -1,9 +1,19 @@
-import { bigint, date, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  date,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import {
   feeDiscountTypeEnum,
   feeDueStatusEnum,
   feeFrequencyEnum,
   feePaymentMethodEnum,
+  feePaymentOrderStatusEnum,
   feePaymentStatusEnum,
 } from './enums.js';
 import { academicSessions, branches, tenants } from './tenants.js';
@@ -140,3 +150,37 @@ export const feeDiscounts = pgTable('fee_discounts', {
   approvedBy: uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A payment-gateway order (P2-MOD-08, Razorpay first). Created before the payer
+ * pays; the provider's webhook flips it to `paid` and spawns a fee_payment.
+ * `providerOrderId` is unique per tenant so webhooks map back deterministically.
+ */
+export const feePaymentOrders = pgTable(
+  'fee_payment_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => students.id, { onDelete: 'cascade' }),
+    /** Minor units. */
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    currency: text('currency').notNull().default('INR'),
+    provider: text('provider').notNull().default('razorpay'),
+    providerOrderId: text('provider_order_id').notNull(),
+    providerPaymentId: text('provider_payment_id'),
+    status: feePaymentOrderStatusEnum('status').notNull().default('created'),
+    /** Echoed to the gateway and back in the webhook (carries tenantId). */
+    notes: jsonb('notes'),
+    /** Set once the webhook creates the settled fee_payment. */
+    paymentId: uuid('payment_id').references(() => feePayments.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('fee_payment_orders_provider_order_unique').on(t.tenantId, t.providerOrderId),
+  ],
+);

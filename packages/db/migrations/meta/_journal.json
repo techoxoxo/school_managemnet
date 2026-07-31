@@ -183,6 +183,20 @@
       "when": 1784931584896,
       "tag": "0025_exams-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784931585396,
+      "tag": "0026_fee-payment-orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784931585896,
+      "tag": "0027_fee-payment-orders-rls",
+      "breakpoints": true
     }
   ]
 }

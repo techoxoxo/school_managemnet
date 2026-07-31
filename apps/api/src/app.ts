@@ -17,6 +17,7 @@ import { swaggerPlugin } from './plugins/swagger.js';
 import { tenantPlugin } from './plugins/tenant.js';
 import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { academicSessionRoutes } from './routes/v1/academic-sessions.js';
 import { admissionRoutes } from './routes/v1/admissions.js';
 import { branchRoutes } from './routes/v1/branches.js';
@@ -109,6 +110,7 @@ export async function buildApp() {
   await app.register(feeRoutes, { prefix: '/v1' });
   await app.register(examRoutes, { prefix: '/v1' });
   await app.register(platformRoutes);
+  await app.register(webhookRoutes);
 
   return app;
 }

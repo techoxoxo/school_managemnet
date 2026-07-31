@@ -196,6 +196,13 @@ export const feePaymentStatusEnum = pgEnum('fee_payment_status', [
   'cancelled',
 ]);
 
+export const feePaymentOrderStatusEnum = pgEnum('fee_payment_order_status', [
+  'created',
+  'paid',
+  'failed',
+  'cancelled',
+]);
+
 export const feeDiscountTypeEnum = pgEnum('fee_discount_type', [
   'sibling',
   'merit',

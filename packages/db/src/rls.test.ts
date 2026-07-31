@@ -53,6 +53,7 @@ const TENANT_SCOPED_TABLES = [
   'fee_payments',
   'fee_payment_allocations',
   'fee_discounts',
+  'fee_payment_orders',
   'exam_types',
   'grading_systems',
   'exams',
