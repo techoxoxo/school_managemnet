@@ -32,7 +32,7 @@ import type { TenantDb } from '@schoolmate/db';
 import { writeAudit } from '../../lib/audit.js';
 import { assertFound, idParamSchema } from '../../lib/http.js';
 import { htmlToPdf } from '../../lib/pdf.js';
-import { putObject } from '../../lib/storage.js';
+import { deleteObject, getObjectBytes, objectExists, putObject } from '../../lib/storage.js';
 import {
   renderReportCardHtml,
   type ReportCardData,
@@ -868,9 +868,15 @@ export async function examRoutes(app: FastifyInstance) {
           entityId: exam.id,
           newValues: { students: computed.length },
         });
-        return { students: computed.length };
+        return { students: computed.length, studentIds: computed.map((c) => c.studentId) };
       });
-      return { success: true as const, data: result };
+      // Invalidate any cached report-card PDFs — the marks just changed.
+      await Promise.all(
+        result.studentIds.map((sid) =>
+          deleteObject(reportCardKey(request.tenant!.id, request.params.id, sid)),
+        ),
+      );
+      return { success: true as const, data: { students: result.students } };
     },
   );
 
@@ -1012,13 +1018,17 @@ export async function examRoutes(app: FastifyInstance) {
     '/exams/:id/unpublish',
     { config: manage, schema: { tags: ['exams'], params: idParamSchema } },
     async (request) => {
-      await request.tenantDb(async (db) => {
+      const studentIds = await request.tenantDb(async (db) => {
         const [exam] = await db
           .select()
           .from(exams)
           .where(eq(exams.id, request.params.id))
           .limit(1);
         assertFound(exam, 'Exam');
+        const cards = await db
+          .select({ studentId: reportCards.studentId })
+          .from(reportCards)
+          .where(eq(reportCards.examId, exam.id));
         await db
           .update(exams)
           .set({ status: 'completed', publishedAt: null, updatedAt: new Date() })
@@ -1033,7 +1043,14 @@ export async function examRoutes(app: FastifyInstance) {
           entityId: exam.id,
           newValues: { status: 'completed', unpublished: true },
         });
+        return cards.map((c) => c.studentId);
       });
+      // Drop cached PDFs so nothing stale is served after unpublishing.
+      await Promise.all(
+        studentIds.map((sid) =>
+          deleteObject(reportCardKey(request.tenant!.id, request.params.id, sid)),
+        ),
+      );
       return { success: true as const, data: { unpublished: true } };
     },
   );
@@ -1125,6 +1142,21 @@ export async function examRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { id: examId, studentId } = request.params;
+
+      // Cache warming (P2-MOD-21): serve the bulk-pre-generated PDF from S3 when
+      // present. Bulk generation writes the cache for published cards, so this
+      // carries the result-day spike. An explicit ?template= always renders
+      // fresh, and recompute/unpublish invalidate the cache (see below).
+      const useCache = request.query.template === undefined;
+      const cacheKey = reportCardKey(request.tenant!.id, examId, studentId);
+      if (useCache && (await objectExists(cacheKey))) {
+        const cached = await getObjectBytes(cacheKey);
+        return reply
+          .header('content-type', 'application/pdf')
+          .header('content-disposition', 'inline; filename="report-card.pdf"')
+          .send(cached);
+      }
+
       const assembled = await request.tenantDb((db) =>
         assembleReportCards(db, request.tenant!.name, examId, { studentId }),
       );

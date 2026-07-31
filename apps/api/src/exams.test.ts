@@ -859,5 +859,16 @@ describe.skipIf(!CHROME_UP || !MINIO_UP)('bulk report generation (P2-MOD-20)', (
     // The cached objects are real PDFs fetched back from S3.
     const bytes = await getObjectBytes(gen.cards[0].key);
     expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+    // Cache warming (P2-MOD-21): the on-demand endpoint serves the exact cached
+    // bytes (a fresh render would differ by PDF timestamp), so pre-generated
+    // cards carry the result-day spike without re-rendering.
+    const onDemand = await app.inject({
+      method: 'GET',
+      url: `/v1/exams/${exam}/students/${gen.cards[0].studentId}/report-card.pdf`,
+      headers: auth(),
+    });
+    expect(onDemand.statusCode).toBe(200);
+    expect(Buffer.from(onDemand.rawPayload).equals(bytes)).toBe(true);
   });
 });
